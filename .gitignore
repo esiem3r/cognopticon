@@ -1,0 +1,9 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+.vite/
+.DS_Store
+*.log
+missions/
+workspace-scan.json

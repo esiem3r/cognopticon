@@ -1,0 +1,18 @@
+[
+  { "id": "cosmopticon-operator", "source": "cosmopticon", "target": "codex-operator", "kind": "depends_on", "label": "uses operational substrate", "strength": 0.9 },
+  { "id": "cosmopticon-cockpit", "source": "cosmopticon", "target": "codex-cockpit", "kind": "feeds", "label": "future archive intelligence", "strength": 0.82 },
+  { "id": "cosmopticon-threadgraph", "source": "cosmopticon", "target": "threadgraph", "kind": "feeds", "label": "semantic project evidence", "strength": 0.8 },
+  { "id": "cockpit-dataset", "source": "codex-cockpit", "target": "dataset-library", "kind": "archive_source", "label": "materializes corpus views", "strength": 0.92 },
+  { "id": "threadgraph-dataset", "source": "threadgraph", "target": "dataset-library", "kind": "archive_source", "label": "derived graph view", "strength": 0.92 },
+  { "id": "operator-excalibur", "source": "codex-operator", "target": "excalibur", "kind": "agent_target", "label": "harness continuity", "strength": 0.72 },
+  { "id": "cosmopticon-excalibur", "source": "cosmopticon", "target": "excalibur", "kind": "agent_target", "label": "mission brief bridge", "strength": 0.74 },
+  { "id": "memory-cosmopticon", "source": "memory-server", "target": "cosmopticon", "kind": "inspired_by", "label": "spatial archive prototype", "strength": 0.78 },
+  { "id": "operator-studio-cosmopticon", "source": "operator-studio", "target": "cosmopticon", "kind": "reference", "label": "operator product ideas", "strength": 0.55 },
+  { "id": "agent-os-excalibur", "source": "agent-os", "target": "excalibur", "kind": "reference", "label": "overlapping harness experiments", "strength": 0.65 },
+  { "id": "kern-operator", "source": "kern-dogs", "target": "codex-operator", "kind": "agent_target", "label": "needs guarded research missions", "strength": 0.7 },
+  { "id": "research-kern-bsc", "source": "kern-dogs", "target": "bounding-square-calculus", "kind": "reference", "label": "research-code discipline", "strength": 0.58 },
+  { "id": "research-bsc-riemann", "source": "bounding-square-calculus", "target": "riemann-real-form", "kind": "reference", "label": "formal math cluster", "strength": 0.66 },
+  { "id": "research-riemann-fold", "source": "riemann-real-form", "target": "fold-entropy", "kind": "reference", "label": "imported math ideas", "strength": 0.45 },
+  { "id": "research-parameter-kern", "source": "parameter-golf", "target": "kern-dogs", "kind": "reference", "label": "experimental performance culture", "strength": 0.52 },
+  { "id": "cosmopticon-research", "source": "cosmopticon", "target": "bounding-square-calculus", "kind": "agent_target", "label": "needs claim-sized missions", "strength": 0.62 }
+]
