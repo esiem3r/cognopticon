@@ -189,26 +189,26 @@ select {
   position: absolute;
   left: 0;
   top: 0;
-  max-width: 150px;
+  max-width: 170px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 4px 8px;
-  border: 1px solid rgba(219, 238, 235, 0.14);
-  border-radius: 999px;
-  background: rgba(3, 7, 10, 0.58);
-  color: rgba(237, 247, 244, 0.7);
+  padding: 0 0 6px;
+  border: 0;
+  border-bottom: 1px solid rgba(219, 238, 235, 0.18);
+  background: transparent;
+  color: rgba(237, 247, 244, 0.66);
   font-size: 11px;
+  font-weight: 520;
   transform-origin: 0 0;
   transition: opacity 140ms ease;
-  translate: -50% calc(-100% - 16px);
-  backdrop-filter: blur(12px);
+  translate: -50% calc(-100% - 18px);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
 }
 
 .project-label.active {
-  border-color: rgba(255, 242, 191, 0.48);
+  border-bottom-color: rgba(255, 242, 191, 0.72);
   color: #fff2bf;
-  background: rgba(15, 12, 6, 0.66);
 }
 
 .canvas-hud {

@@ -26,6 +26,7 @@ interface SceneRefs {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
+  graphGroup: THREE.Group;
   projectGroup: THREE.Group;
   linkGroup: THREE.Group;
   starField: THREE.Points;
@@ -37,6 +38,7 @@ interface SceneRefs {
   desiredPosition: THREE.Vector3;
   panVelocity: THREE.Vector3;
   dollyVelocity: number;
+  rotationVelocity: THREE.Vector2;
 }
 
 export function UniverseCanvas({
@@ -81,14 +83,16 @@ export function UniverseCanvas({
     renderer.domElement.setAttribute("aria-label", "Spatial project universe");
     mount.appendChild(renderer.domElement);
 
+    const graphGroup = new THREE.Group();
     const projectGroup = new THREE.Group();
     const linkGroup = new THREE.Group();
     const starField = createStarField();
     scene.add(createNebulaShell());
-    scene.add(createLatentCloud());
+    graphGroup.add(createLatentCloud());
     scene.add(starField);
-    scene.add(linkGroup);
-    scene.add(projectGroup);
+    graphGroup.add(linkGroup);
+    graphGroup.add(projectGroup);
+    scene.add(graphGroup);
     scene.add(new THREE.AmbientLight("#c3efff", 1.1));
 
     const keyLight = new THREE.PointLight("#fff2bf", 1400, 3200);
@@ -99,6 +103,7 @@ export function UniverseCanvas({
       scene,
       camera,
       renderer,
+      graphGroup,
       projectGroup,
       linkGroup,
       starField,
@@ -107,9 +112,10 @@ export function UniverseCanvas({
       projectMeshes: new Map(),
       target: new THREE.Vector3(0, 0, 0),
       desiredTarget: new THREE.Vector3(0, 260, 0),
-      desiredPosition: new THREE.Vector3(0, 260, 680),
+      desiredPosition: new THREE.Vector3(0, 260, 900),
       panVelocity: new THREE.Vector3(),
-      dollyVelocity: 0
+      dollyVelocity: 0,
+      rotationVelocity: new THREE.Vector2()
     };
     camera.position.copy(refs.current.desiredPosition);
 
@@ -137,7 +143,8 @@ export function UniverseCanvas({
       lastX = event.clientX;
       lastY = event.clientY;
       if (Math.abs(dx) + Math.abs(dy) > 2) movedDuringDrag = true;
-      panObserver(state, dx, dy);
+      if (event.shiftKey) panObserver(state, dx, dy);
+      else rotateGraph(state, dx, dy);
     };
 
     const handlePointerUp = (event: PointerEvent) => {
@@ -157,7 +164,7 @@ export function UniverseCanvas({
       event.preventDefault();
       const state = refs.current;
       if (!state) return;
-      if (shouldPanFromWheel(event)) {
+      if (event.shiftKey) {
         panObserver(state, -event.deltaX * 1.15, -event.deltaY * 1.15);
       } else {
         dollyObserver(state, event.deltaY);
@@ -185,6 +192,7 @@ export function UniverseCanvas({
         child.rotation.x += 0.002;
       });
       updateCamera(state);
+      updateGraphRotation(state);
       state.renderer.render(state.scene, state.camera);
       updateLabels(state);
       frame = requestAnimationFrame(animate);
@@ -205,14 +213,15 @@ export function UniverseCanvas({
       const latest = latestRef.current;
       const next = latest.projects.map((project, index) => {
         const position = latest.projectPositions.get(project.id) ?? projectVector(project, index);
-        const projected = position.clone().project(state.camera);
+        const worldPosition = position.clone().applyMatrix4(state.graphGroup.matrixWorld);
+        const projected = worldPosition.clone().project(state.camera);
         const active = project.id === latest.selectedId || project.id === latest.hoveredId;
         return {
           id: project.id,
           name: project.name,
           x: (projected.x * 0.5 + 0.5) * rect.width,
           y: (-projected.y * 0.5 + 0.5) * rect.height,
-          visible: projected.z < 1 && (active || state.camera.position.distanceTo(position) < 980),
+          visible: projected.z < 1 && (active || state.camera.position.distanceTo(worldPosition) < 1100),
           active
         };
       });
@@ -233,6 +242,7 @@ export function UniverseCanvas({
       renderer.dispose();
       disposeGroup(projectGroup);
       disposeGroup(linkGroup);
+      disposeGroup(graphGroup);
       disposeObject(starField);
     };
   }, []);
@@ -367,12 +377,12 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
       map: glowTexture(),
       color,
       transparent: true,
-      opacity: active ? 0.78 : visible ? 0.46 : 0.12,
+      opacity: active ? 0.42 : visible ? 0.22 : 0.08,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     })
   );
-  const spriteScale = radius * (active ? 4.35 : 3.5);
+  const spriteScale = radius * (active ? 3.1 : 2.35);
   sprite.scale.set(spriteScale, spriteScale, 1);
   sprite.userData.projectId = project.id;
   group.add(sprite);
@@ -382,7 +392,7 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
       map: glowTexture(),
       color: "#ffffff",
       transparent: true,
-      opacity: active ? 0.36 : visible ? 0.2 : 0.04,
+      opacity: active ? 0.28 : visible ? 0.16 : 0.04,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     })
@@ -393,11 +403,11 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
   group.add(coreLight);
 
   const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * (active ? 2.15 : 1.85), 48, 24),
+    new THREE.SphereGeometry(radius * (active ? 1.6 : 1.35), 48, 24),
     new THREE.MeshBasicMaterial({
       color,
       transparent: true,
-      opacity: active ? 0.18 : visible ? 0.13 : 0.026,
+      opacity: active ? 0.11 : visible ? 0.06 : 0.018,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     })
@@ -410,7 +420,7 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
     new THREE.MeshBasicMaterial({
       color: active ? "#fff2bf" : color,
       transparent: true,
-      opacity: active ? 0.9 : visible ? 0.5 : 0.1,
+      opacity: active ? 0.72 : visible ? 0.34 : 0.08,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     })
@@ -424,7 +434,7 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
     new THREE.MeshBasicMaterial({
       color: active ? "#ffffff" : color,
       transparent: true,
-      opacity: active ? 0.46 : visible ? 0.18 : 0.04,
+      opacity: active ? 0.3 : visible ? 0.12 : 0.035,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     })
@@ -591,6 +601,19 @@ function updateCamera(state: SceneRefs) {
   state.camera.lookAt(state.target);
 }
 
+function updateGraphRotation(state: SceneRefs) {
+  if (Math.abs(state.rotationVelocity.x) <= 0.00001 && Math.abs(state.rotationVelocity.y) <= 0.00001) return;
+  state.graphGroup.rotation.y += state.rotationVelocity.x;
+  state.graphGroup.rotation.x = clamp(state.graphGroup.rotation.x + state.rotationVelocity.y, -0.85, 0.85);
+  state.rotationVelocity.multiplyScalar(0.86);
+}
+
+function rotateGraph(state: SceneRefs, dx: number, dy: number) {
+  state.rotationVelocity.x += dx * 0.00072;
+  state.rotationVelocity.y += dy * 0.00056;
+  state.rotationVelocity.multiplyScalar(0.72);
+}
+
 function panObserver(state: SceneRefs, dx: number, dy: number) {
   const distance = state.desiredPosition.distanceTo(state.desiredTarget);
   const scale = clamp(distance / 860, 0.22, 1.55);
@@ -610,15 +633,16 @@ function dollyObserver(state: SceneRefs, deltaY: number) {
 function applyDolly(state: SceneRefs, amount: number) {
   const forward = state.desiredTarget.clone().sub(state.desiredPosition).normalize();
   const distance = state.desiredPosition.distanceTo(state.desiredTarget);
-  const nextDistance = clamp(distance + amount, 280, 1650);
+  const nextDistance = clamp(distance + amount, 360, 2250);
   const change = nextDistance - distance;
   state.desiredPosition.add(forward.multiplyScalar(-change));
-}
-
-function shouldPanFromWheel(event: WheelEvent) {
-  if (event.ctrlKey || event.metaKey) return false;
-  if (Math.abs(event.deltaX) > 0) return true;
-  return Math.abs(event.deltaY) < 70;
+  if (nextDistance > 1080) {
+    const overview = new THREE.Vector3(0, 260, 0);
+    const amountToCenter = Math.min(1, (nextDistance - 1080) / 560);
+    const shift = overview.sub(state.desiredTarget).multiplyScalar(amountToCenter * 0.46);
+    state.desiredTarget.add(shift);
+    state.desiredPosition.add(shift);
+  }
 }
 
 function pickProjectFromState(state: SceneRefs, clientX: number, clientY: number) {
@@ -636,9 +660,10 @@ function flyToProject(state: SceneRefs, position: THREE.Vector3) {
   if (currentDirection.lengthSq() < 1) currentDirection.set(0, 120, 520);
   currentDirection.normalize();
   state.desiredTarget.copy(position);
-  state.desiredPosition.copy(position).add(currentDirection.multiplyScalar(520));
+  state.desiredPosition.copy(position).add(currentDirection.multiplyScalar(620));
   state.panVelocity.set(0, 0, 0);
   state.dollyVelocity = 0;
+  state.rotationVelocity.set(0, 0);
 }
 
 function disposeGroup(group: THREE.Group) {
