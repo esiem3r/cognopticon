@@ -55,6 +55,9 @@ export function UniverseCanvas({
     return new Map(projects.map((project, index) => [project.id, projectVector(project, index)]));
   }, [projects]);
 
+  const latestRef = useRef({ projects, projectPositions, selectedId, hoveredId, onSelect, onHover });
+  latestRef.current = { projects, projectPositions, selectedId, hoveredId, onSelect, onHover };
+
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
@@ -123,7 +126,7 @@ export function UniverseCanvas({
       const state = refs.current;
       if (!state) return;
       const hitId = pickProjectFromState(state, event.clientX, event.clientY);
-      onHover(hitId ?? null);
+      latestRef.current.onHover(hitId ?? null);
       if (!pointerActive) return;
       const dx = event.clientX - lastX;
       const dy = event.clientY - lastY;
@@ -139,11 +142,11 @@ export function UniverseCanvas({
       renderer.domElement.releasePointerCapture(event.pointerId);
       pointerActive = false;
       const hitId = pickProjectFromState(state, event.clientX, event.clientY);
-      if (hitId && !movedDuringDrag) onSelect(hitId);
+      if (hitId && !movedDuringDrag) latestRef.current.onSelect(hitId);
     };
 
     const handlePointerLeave = () => {
-      onHover(null);
+      latestRef.current.onHover(null);
     };
 
     const handleWheel = (event: WheelEvent) => {
@@ -195,10 +198,11 @@ export function UniverseCanvas({
 
     function updateLabels(state: SceneRefs) {
       const rect = state.renderer.domElement.getBoundingClientRect();
-      const next = projects.map((project, index) => {
-        const position = projectPositions.get(project.id) ?? projectVector(project, index);
+      const latest = latestRef.current;
+      const next = latest.projects.map((project, index) => {
+        const position = latest.projectPositions.get(project.id) ?? projectVector(project, index);
         const projected = position.clone().project(state.camera);
-        const active = project.id === selectedId || project.id === hoveredId;
+        const active = project.id === latest.selectedId || project.id === latest.hoveredId;
         return {
           id: project.id,
           name: project.name,
@@ -227,7 +231,7 @@ export function UniverseCanvas({
       disposeGroup(linkGroup);
       disposeObject(starField);
     };
-  }, [hoveredId, onHover, onSelect, projectPositions, projects, selectedId]);
+  }, []);
 
   useEffect(() => {
     const state = refs.current;

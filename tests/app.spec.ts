@@ -61,3 +61,23 @@ test("canvas supports direct drag and wheel navigation", async ({ page }) => {
   const after = await snapshotSize();
   expect(Math.abs(after - before)).toBeGreaterThan(1000);
 });
+
+test("dragging does not recreate the WebGL canvas", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForTimeout(800);
+  const canvas = page.getByTestId("universe-canvas");
+  await canvas.evaluate((node: HTMLCanvasElement) => {
+    node.dataset.stabilityProbe = "original";
+  });
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+
+  await page.mouse.move(box.x + box.width * 0.42, box.y + box.height * 0.5);
+  await page.mouse.down();
+  for (let step = 0; step < 24; step += 1) {
+    await page.mouse.move(box.x + box.width * (0.42 + step * 0.008), box.y + box.height * (0.5 + Math.sin(step / 3) * 0.1));
+  }
+  await page.mouse.up();
+  await expect(page.getByTestId("universe-canvas")).toHaveAttribute("data-stability-probe", "original");
+});
