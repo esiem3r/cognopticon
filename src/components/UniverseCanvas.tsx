@@ -48,7 +48,6 @@ export function UniverseCanvas({
 }: UniverseCanvasProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const refs = useRef<SceneRefs | null>(null);
-  const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const lastFlownSelectionRef = useRef<string | null>(null);
   const [labels, setLabels] = useState<ProjectLabel[]>([]);
 
@@ -107,6 +106,64 @@ export function UniverseCanvas({
     };
     camera.position.copy(refs.current.desiredPosition);
 
+    let pointerActive = false;
+    let movedDuringDrag = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      pointerActive = true;
+      movedDuringDrag = false;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      renderer.domElement.setPointerCapture(event.pointerId);
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const state = refs.current;
+      if (!state) return;
+      const hitId = pickProjectFromState(state, event.clientX, event.clientY);
+      onHover(hitId ?? null);
+      if (!pointerActive) return;
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      if (Math.abs(dx) + Math.abs(dy) > 2) movedDuringDrag = true;
+      panObserver(state, dx, dy);
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const state = refs.current;
+      if (!state) return;
+      renderer.domElement.releasePointerCapture(event.pointerId);
+      pointerActive = false;
+      const hitId = pickProjectFromState(state, event.clientX, event.clientY);
+      if (hitId && !movedDuringDrag) onSelect(hitId);
+    };
+
+    const handlePointerLeave = () => {
+      onHover(null);
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const state = refs.current;
+      if (!state) return;
+      if (shouldPanFromWheel(event)) {
+        panObserver(state, -event.deltaX * 1.15, -event.deltaY * 1.15);
+      } else {
+        dollyObserver(state, event.deltaY);
+      }
+    };
+
+    renderer.domElement.addEventListener("pointerdown", handlePointerDown);
+    renderer.domElement.addEventListener("pointermove", handlePointerMove);
+    renderer.domElement.addEventListener("pointerup", handlePointerUp);
+    renderer.domElement.addEventListener("pointercancel", handlePointerUp);
+    renderer.domElement.addEventListener("pointerleave", handlePointerLeave);
+    renderer.domElement.addEventListener("wheel", handleWheel, { passive: false });
+
     const observer = new ResizeObserver(() => resize());
     observer.observe(mount);
     resize();
@@ -157,6 +214,12 @@ export function UniverseCanvas({
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
+      renderer.domElement.removeEventListener("pointermove", handlePointerMove);
+      renderer.domElement.removeEventListener("pointerup", handlePointerUp);
+      renderer.domElement.removeEventListener("pointercancel", handlePointerUp);
+      renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
+      renderer.domElement.removeEventListener("wheel", handleWheel);
       refs.current = null;
       mount.removeChild(renderer.domElement);
       renderer.dispose();
@@ -164,7 +227,7 @@ export function UniverseCanvas({
       disposeGroup(linkGroup);
       disposeObject(starField);
     };
-  }, [hoveredId, projectPositions, projects, selectedId]);
+  }, [hoveredId, onHover, onSelect, projectPositions, projects, selectedId]);
 
   useEffect(() => {
     const state = refs.current;
@@ -205,56 +268,8 @@ export function UniverseCanvas({
     lastFlownSelectionRef.current = selectedId;
   }, [filteredIds, projectPositions, selectedId]);
 
-  function pickProject(clientX: number, clientY: number) {
-    const state = refs.current;
-    const mount = mountRef.current;
-    if (!state || !mount) return undefined;
-    const rect = mount.getBoundingClientRect();
-    state.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-    state.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-    state.raycaster.setFromCamera(state.pointer, state.camera);
-    const hits = state.raycaster.intersectObjects(Array.from(state.projectMeshes.values()), true);
-    const hit = hits.find((item) => item.object.userData.projectId || item.object.parent?.userData.projectId);
-    return hit?.object.userData.projectId ?? hit?.object.parent?.userData.projectId;
-  }
-
   return (
-    <div
-      ref={mountRef}
-      className="universe-frame three-universe"
-      onPointerDown={(event) => {
-        event.currentTarget.setPointerCapture(event.pointerId);
-        dragRef.current = { x: event.clientX, y: event.clientY, moved: false };
-      }}
-      onPointerMove={(event) => {
-        const hitId = pickProject(event.clientX, event.clientY);
-        onHover(hitId ?? null);
-        const drag = dragRef.current;
-        const state = refs.current;
-        if (!drag || !state) return;
-        const dx = event.clientX - drag.x;
-        const dy = event.clientY - drag.y;
-        if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-        panObserver(state, dx, dy);
-        drag.x = event.clientX;
-        drag.y = event.clientY;
-      }}
-      onPointerUp={(event) => {
-        const drag = dragRef.current;
-        const hitId = pickProject(event.clientX, event.clientY);
-        if (hitId && !drag?.moved) onSelect(hitId);
-        dragRef.current = null;
-      }}
-      onPointerCancel={() => {
-        dragRef.current = null;
-      }}
-      onWheel={(event) => {
-        event.preventDefault();
-        const state = refs.current;
-        if (!state) return;
-        dollyObserver(state, event.deltaY);
-      }}
-    >
+    <div ref={mountRef} className="universe-frame three-universe">
       <div className="latent-haze" aria-hidden />
       <div className="project-label-layer" aria-hidden>
         {labels.map((label) => (
@@ -490,6 +505,22 @@ function dollyObserver(state: SceneRefs, deltaY: number) {
   const nextDistance = clamp(distance + amount, 130, 1550);
   const change = nextDistance - distance;
   state.desiredPosition.add(forward.multiplyScalar(-change));
+}
+
+function shouldPanFromWheel(event: WheelEvent) {
+  if (event.ctrlKey || event.metaKey) return false;
+  if (Math.abs(event.deltaX) > 0) return true;
+  return Math.abs(event.deltaY) < 70;
+}
+
+function pickProjectFromState(state: SceneRefs, clientX: number, clientY: number) {
+  const rect = state.renderer.domElement.getBoundingClientRect();
+  state.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  state.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  state.raycaster.setFromCamera(state.pointer, state.camera);
+  const hits = state.raycaster.intersectObjects(Array.from(state.projectMeshes.values()), true);
+  const hit = hits.find((item) => item.object.userData.projectId || item.object.parent?.userData.projectId);
+  return hit?.object.userData.projectId ?? hit?.object.parent?.userData.projectId;
 }
 
 function flyToProject(state: SceneRefs, position: THREE.Vector3) {

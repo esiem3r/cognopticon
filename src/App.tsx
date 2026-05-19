@@ -115,7 +115,8 @@ export default function App() {
           />
           <div className="canvas-hud" aria-label="Navigation hints">
             <span><Crosshair size={14} aria-hidden /> drag to move</span>
-            <span>pinch or wheel to dive</span>
+            <span>trackpad scroll pans</span>
+            <span>pinch or mouse wheel dives</span>
             <span>click a body to fly there</span>
           </div>
         </div>
