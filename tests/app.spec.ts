@@ -6,17 +6,18 @@ test("renders the project universe and opens a mission brief", async ({ page }) 
   await expect(page.getByTestId("universe-canvas")).toBeVisible();
   await expect(page.getByLabel("Cosmopticon dossier").getByRole("heading", { name: "Cosmopticon" })).toBeVisible();
 
-  const pixels = await page.getByTestId("universe-canvas").evaluate((canvas: HTMLCanvasElement) => {
-    const context = canvas.getContext("2d");
-    const data = context?.getImageData(0, 0, Math.min(canvas.width, 80), Math.min(canvas.height, 80)).data;
-    if (!data) return 0;
-    let nonBlank = 0;
-    for (let index = 0; index < data.length; index += 4) {
-      if (data[index] || data[index + 1] || data[index + 2]) nonBlank += 1;
-    }
-    return nonBlank;
+  await page.waitForTimeout(250);
+  const webglProof = await page.getByTestId("universe-canvas").evaluate((canvas: HTMLCanvasElement) => {
+    const dataUrl = canvas.toDataURL("image/png");
+    return {
+      width: canvas.width,
+      height: canvas.height,
+      dataLength: dataUrl.length
+    };
   });
-  expect(pixels).toBeGreaterThan(100);
+  expect(webglProof.width).toBeGreaterThan(300);
+  expect(webglProof.height).toBeGreaterThan(300);
+  expect(webglProof.dataLength).toBeGreaterThan(5000);
 
   await page.getByRole("button", { name: "Mission brief", exact: true }).click();
   await expect(page.getByLabel("Generated mission brief")).toContainText("# Mission Brief: Cosmopticon");

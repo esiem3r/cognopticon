@@ -149,6 +149,16 @@ select {
   height: 100%;
 }
 
+.universe-frame {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(249, 138, 212, 0.16), transparent 26%),
+    radial-gradient(circle at 82% 34%, rgba(128, 228, 201, 0.12), transparent 28%),
+    radial-gradient(circle at 52% 78%, rgba(255, 209, 102, 0.1), transparent 30%),
+    #020407;
+}
+
 .universe-canvas {
   display: block;
   touch-action: none;
@@ -157,6 +167,48 @@ select {
 
 .universe-canvas:active {
   cursor: grabbing;
+}
+
+.latent-haze {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.04), transparent 22%, rgba(159, 215, 255, 0.055) 48%, transparent 72%),
+    radial-gradient(circle at 50% 50%, transparent 0, rgba(2, 4, 7, 0.12) 55%, rgba(2, 4, 7, 0.58) 100%);
+  mix-blend-mode: screen;
+}
+
+.project-label-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.project-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border: 1px solid rgba(219, 238, 235, 0.14);
+  border-radius: 999px;
+  background: rgba(3, 7, 10, 0.58);
+  color: rgba(237, 247, 244, 0.7);
+  font-size: 11px;
+  transform-origin: 0 0;
+  transition: opacity 140ms ease;
+  translate: -50% calc(-100% - 16px);
+  backdrop-filter: blur(12px);
+}
+
+.project-label.active {
+  border-color: rgba(255, 242, 191, 0.48);
+  color: #fff2bf;
+  background: rgba(15, 12, 6, 0.66);
 }
 
 .canvas-hud {
