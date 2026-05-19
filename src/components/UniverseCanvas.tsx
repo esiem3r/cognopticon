@@ -35,6 +35,8 @@ interface SceneRefs {
   target: THREE.Vector3;
   desiredTarget: THREE.Vector3;
   desiredPosition: THREE.Vector3;
+  panVelocity: THREE.Vector3;
+  dollyVelocity: number;
 }
 
 export function UniverseCanvas({
@@ -105,7 +107,9 @@ export function UniverseCanvas({
       projectMeshes: new Map(),
       target: new THREE.Vector3(0, 0, 0),
       desiredTarget: new THREE.Vector3(0, 260, 0),
-      desiredPosition: new THREE.Vector3(0, 260, 680)
+      desiredPosition: new THREE.Vector3(0, 260, 680),
+      panVelocity: new THREE.Vector3(),
+      dollyVelocity: 0
     };
     camera.position.copy(refs.current.desiredPosition);
 
@@ -307,20 +311,56 @@ function projectVector(project: ProjectDossier, index: number) {
 
 function createProjectBody(project: ProjectDossier, visible: boolean, active: boolean) {
   const color = new THREE.Color(domainColors[project.domain]);
+  const warm = new THREE.Color("#fff2bf");
   const radius = 12 + project.substance * 20;
   const group = new THREE.Group();
   group.userData.projectId = project.id;
 
   const sphere = new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 48, 32),
-    new THREE.MeshBasicMaterial({
+    new THREE.SphereGeometry(radius, 64, 40),
+    new THREE.MeshStandardMaterial({
       color,
+      emissive: color,
+      emissiveIntensity: active ? 1.25 : visible ? 0.62 : 0.12,
+      roughness: 0.28,
+      metalness: 0.08,
       transparent: true,
       opacity: visible ? 0.96 : 0.18
     })
   );
   sphere.userData.projectId = project.id;
   group.add(sphere);
+
+  const fresnel = new THREE.Mesh(
+    new THREE.SphereGeometry(radius * 1.06, 64, 40),
+    new THREE.ShaderMaterial({
+      uniforms: {
+        glowColor: { value: active ? warm : color },
+        opacity: { value: active ? 0.72 : visible ? 0.42 : 0.08 }
+      },
+      vertexShader: `
+        varying vec3 vNormal;
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 glowColor;
+        uniform float opacity;
+        varying vec3 vNormal;
+        void main() {
+          float rim = pow(1.0 - abs(vNormal.z), 2.25);
+          gl_FragColor = vec4(glowColor, rim * opacity);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    })
+  );
+  fresnel.userData.projectId = project.id;
+  group.add(fresnel);
 
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({
@@ -336,6 +376,21 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
   sprite.scale.set(spriteScale, spriteScale, 1);
   sprite.userData.projectId = project.id;
   group.add(sprite);
+
+  const coreLight = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: glowTexture(),
+      color: "#ffffff",
+      transparent: true,
+      opacity: active ? 0.36 : visible ? 0.2 : 0.04,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    })
+  );
+  coreLight.scale.set(radius * 1.4, radius * 1.4, 1);
+  coreLight.position.set(-radius * 0.22, radius * 0.18, radius * 0.5);
+  coreLight.userData.projectId = project.id;
+  group.add(coreLight);
 
   const halo = new THREE.Mesh(
     new THREE.SphereGeometry(radius * (active ? 2.15 : 1.85), 48, 24),
@@ -363,6 +418,21 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
   ring.rotation.x = Math.PI * 0.58;
   ring.rotation.y = Math.PI * 0.18;
   group.add(ring);
+
+  const polarRing = new THREE.Mesh(
+    new THREE.TorusGeometry(radius * 1.28, Math.max(0.55, radius * 0.018), 8, 96),
+    new THREE.MeshBasicMaterial({
+      color: active ? "#ffffff" : color,
+      transparent: true,
+      opacity: active ? 0.46 : visible ? 0.18 : 0.04,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    })
+  );
+  polarRing.rotation.x = Math.PI * 0.08;
+  polarRing.rotation.y = Math.PI * 0.72;
+  polarRing.rotation.z = Math.PI * 0.18;
+  group.add(polarRing);
 
   return group as unknown as THREE.Mesh;
 }
@@ -411,6 +481,7 @@ function createStarField() {
     geometry,
     new THREE.PointsMaterial({
       size: 3.8,
+      map: pointTexture(),
       vertexColors: true,
       transparent: true,
       opacity: 0.88,
@@ -455,6 +526,7 @@ function createLatentCloud() {
     geometry,
     new THREE.PointsMaterial({
       size: 12,
+      map: pointTexture(),
       vertexColors: true,
       transparent: true,
       opacity: 0.12,
@@ -465,6 +537,7 @@ function createLatentCloud() {
 }
 
 let cachedGlowTexture: THREE.Texture | null = null;
+let cachedPointTexture: THREE.Texture | null = null;
 
 function glowTexture() {
   if (cachedGlowTexture) return cachedGlowTexture;
@@ -485,7 +558,34 @@ function glowTexture() {
   return cachedGlowTexture;
 }
 
+function pointTexture() {
+  if (cachedPointTexture) return cachedPointTexture;
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const context = canvas.getContext("2d");
+  if (context) {
+    const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gradient.addColorStop(0, "rgba(255,255,255,0.95)");
+    gradient.addColorStop(0.4, "rgba(255,255,255,0.28)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 64, 64);
+  }
+  cachedPointTexture = new THREE.CanvasTexture(canvas);
+  return cachedPointTexture;
+}
+
 function updateCamera(state: SceneRefs) {
+  if (state.panVelocity.lengthSq() > 0.0001) {
+    state.desiredPosition.add(state.panVelocity);
+    state.desiredTarget.add(state.panVelocity);
+    state.panVelocity.multiplyScalar(0.82);
+  }
+  if (Math.abs(state.dollyVelocity) > 0.001) {
+    applyDolly(state, state.dollyVelocity);
+    state.dollyVelocity *= 0.78;
+  }
   state.target.lerp(state.desiredTarget, 0.16);
   state.camera.position.lerp(state.desiredPosition, 0.16);
   state.camera.lookAt(state.target);
@@ -493,20 +593,24 @@ function updateCamera(state: SceneRefs) {
 
 function panObserver(state: SceneRefs, dx: number, dy: number) {
   const distance = state.desiredPosition.distanceTo(state.desiredTarget);
-  const scale = clamp(distance / 760, 0.42, 1.8);
+  const scale = clamp(distance / 860, 0.22, 1.55);
   const forward = state.desiredTarget.clone().sub(state.desiredPosition).normalize();
   const right = new THREE.Vector3().crossVectors(forward, state.camera.up).normalize();
   const up = new THREE.Vector3().crossVectors(right, forward).normalize();
-  const movement = right.multiplyScalar(-dx * scale).add(up.multiplyScalar(dy * scale));
-  state.desiredPosition.add(movement);
-  state.desiredTarget.add(movement);
+  const movement = right.multiplyScalar(-dx * scale * 0.62).add(up.multiplyScalar(dy * scale * 0.62));
+  state.panVelocity.add(movement);
+  state.panVelocity.multiplyScalar(0.72);
 }
 
 function dollyObserver(state: SceneRefs, deltaY: number) {
+  const impulse = clamp(Math.abs(deltaY) * 0.28, 5, 90) * Math.sign(deltaY);
+  state.dollyVelocity = state.dollyVelocity * 0.35 + impulse;
+}
+
+function applyDolly(state: SceneRefs, amount: number) {
   const forward = state.desiredTarget.clone().sub(state.desiredPosition).normalize();
   const distance = state.desiredPosition.distanceTo(state.desiredTarget);
-  const amount = clamp(Math.abs(deltaY) * 0.95, 18, 240) * Math.sign(deltaY);
-  const nextDistance = clamp(distance + amount, 130, 1550);
+  const nextDistance = clamp(distance + amount, 280, 1650);
   const change = nextDistance - distance;
   state.desiredPosition.add(forward.multiplyScalar(-change));
 }
@@ -532,7 +636,9 @@ function flyToProject(state: SceneRefs, position: THREE.Vector3) {
   if (currentDirection.lengthSq() < 1) currentDirection.set(0, 120, 520);
   currentDirection.normalize();
   state.desiredTarget.copy(position);
-  state.desiredPosition.copy(position).add(currentDirection.multiplyScalar(420));
+  state.desiredPosition.copy(position).add(currentDirection.multiplyScalar(520));
+  state.panVelocity.set(0, 0, 0);
+  state.dollyVelocity = 0;
 }
 
 function disposeGroup(group: THREE.Group) {

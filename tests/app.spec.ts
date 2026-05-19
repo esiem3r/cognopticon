@@ -81,3 +81,23 @@ test("dragging does not recreate the WebGL canvas", async ({ page }) => {
   await page.mouse.up();
   await expect(page.getByTestId("universe-canvas")).toHaveAttribute("data-stability-probe", "original");
 });
+
+test("maximum zoom still leaves the universe visible", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForTimeout(800);
+  const canvas = page.getByTestId("universe-canvas");
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await page.keyboard.down("Control");
+  for (let step = 0; step < 8; step += 1) {
+    await page.mouse.wheel(0, -800);
+  }
+  await page.keyboard.up("Control");
+  await page.waitForTimeout(900);
+
+  const dataLength = await canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL("image/png").length);
+  expect(dataLength).toBeGreaterThan(15000);
+});
