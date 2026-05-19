@@ -114,10 +114,9 @@ export default function App() {
             onHover={setHoveredId}
           />
           <div className="canvas-hud" aria-label="Navigation hints">
-            <span><Crosshair size={14} aria-hidden /> drag to orbit</span>
-            <span>shift-drag to pan</span>
+            <span><Crosshair size={14} aria-hidden /> drag to move</span>
             <span>pinch or wheel to dive</span>
-            <span>click a body to inspect</span>
+            <span>click a body to fly there</span>
           </div>
         </div>
 

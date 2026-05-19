@@ -33,7 +33,8 @@ interface SceneRefs {
   pointer: THREE.Vector2;
   projectMeshes: Map<string, THREE.Mesh>;
   target: THREE.Vector3;
-  rotation: { theta: number; phi: number; radius: number };
+  desiredTarget: THREE.Vector3;
+  desiredPosition: THREE.Vector3;
 }
 
 export function UniverseCanvas({
@@ -47,7 +48,8 @@ export function UniverseCanvas({
 }: UniverseCanvasProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const refs = useRef<SceneRefs | null>(null);
-  const dragRef = useRef<{ x: number; y: number; moved: boolean; mode: "rotate" | "pan" } | null>(null);
+  const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const lastFlownSelectionRef = useRef<string | null>(null);
   const [labels, setLabels] = useState<ProjectLabel[]>([]);
 
   const projectPositions = useMemo(() => {
@@ -100,8 +102,10 @@ export function UniverseCanvas({
       pointer: new THREE.Vector2(),
       projectMeshes: new Map(),
       target: new THREE.Vector3(0, 0, 0),
-      rotation: { theta: -0.76, phi: 1.42, radius: 620 }
+      desiredTarget: new THREE.Vector3(0, 260, 0),
+      desiredPosition: new THREE.Vector3(0, 260, 680)
     };
+    camera.position.copy(refs.current.desiredPosition);
 
     const observer = new ResizeObserver(() => resize());
     observer.observe(mount);
@@ -143,7 +147,7 @@ export function UniverseCanvas({
           name: project.name,
           x: (projected.x * 0.5 + 0.5) * rect.width,
           y: (-projected.y * 0.5 + 0.5) * rect.height,
-        visible: projected.z < 1 && (active || state.rotation.radius < 1300),
+          visible: projected.z < 1 && (active || state.camera.position.distanceTo(position) < 980),
           active
         };
       });
@@ -190,11 +194,16 @@ export function UniverseCanvas({
       state.linkGroup.add(createRelationshipFilament(source, target, relationship, sourceVisible && targetVisible, active));
     }
 
-    const selectedPosition = projectPositions.get(selectedId);
-    if (selectedPosition && filteredIds.has(selectedId)) {
-      state.target.lerp(selectedPosition, 0.74);
-    }
   }, [filteredIds, hoveredId, projectPositions, projects, relationships, selectedId]);
+
+  useEffect(() => {
+    const state = refs.current;
+    const selectedPosition = projectPositions.get(selectedId);
+    if (!state || !selectedPosition || !filteredIds.has(selectedId)) return;
+    if (lastFlownSelectionRef.current === selectedId) return;
+    flyToProject(state, selectedPosition);
+    lastFlownSelectionRef.current = selectedId;
+  }, [filteredIds, projectPositions, selectedId]);
 
   function pickProject(clientX: number, clientY: number) {
     const state = refs.current;
@@ -215,7 +224,7 @@ export function UniverseCanvas({
       className="universe-frame three-universe"
       onPointerDown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId);
-        dragRef.current = { x: event.clientX, y: event.clientY, moved: false, mode: event.shiftKey ? "pan" : "rotate" };
+        dragRef.current = { x: event.clientX, y: event.clientY, moved: false };
       }}
       onPointerMove={(event) => {
         const hitId = pickProject(event.clientX, event.clientY);
@@ -226,13 +235,7 @@ export function UniverseCanvas({
         const dx = event.clientX - drag.x;
         const dy = event.clientY - drag.y;
         if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-        if (drag.mode === "pan") {
-          state.target.x += dx * 0.55;
-          state.target.y -= dy * 0.55;
-        } else {
-          state.rotation.theta -= dx * 0.0042;
-          state.rotation.phi = clamp(state.rotation.phi + dy * 0.0036, 0.42, 2.25);
-        }
+        panObserver(state, dx, dy);
         drag.x = event.clientX;
         drag.y = event.clientY;
       }}
@@ -249,7 +252,7 @@ export function UniverseCanvas({
         event.preventDefault();
         const state = refs.current;
         if (!state) return;
-        state.rotation.radius = clamp(state.rotation.radius * Math.exp(event.deltaY * 0.001), 280, 1500);
+        dollyObserver(state, event.deltaY);
       }}
     >
       <div className="latent-haze" aria-hidden />
@@ -464,12 +467,37 @@ function glowTexture() {
 }
 
 function updateCamera(state: SceneRefs) {
-  const { theta, phi, radius } = state.rotation;
-  const x = state.target.x + radius * Math.sin(phi) * Math.cos(theta);
-  const y = state.target.y + radius * Math.cos(phi);
-  const z = state.target.z + radius * Math.sin(phi) * Math.sin(theta);
-  state.camera.position.lerp(new THREE.Vector3(x, y, z), 0.18);
+  state.target.lerp(state.desiredTarget, 0.16);
+  state.camera.position.lerp(state.desiredPosition, 0.16);
   state.camera.lookAt(state.target);
+}
+
+function panObserver(state: SceneRefs, dx: number, dy: number) {
+  const distance = state.desiredPosition.distanceTo(state.desiredTarget);
+  const scale = clamp(distance / 760, 0.42, 1.8);
+  const forward = state.desiredTarget.clone().sub(state.desiredPosition).normalize();
+  const right = new THREE.Vector3().crossVectors(forward, state.camera.up).normalize();
+  const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+  const movement = right.multiplyScalar(-dx * scale).add(up.multiplyScalar(dy * scale));
+  state.desiredPosition.add(movement);
+  state.desiredTarget.add(movement);
+}
+
+function dollyObserver(state: SceneRefs, deltaY: number) {
+  const forward = state.desiredTarget.clone().sub(state.desiredPosition).normalize();
+  const distance = state.desiredPosition.distanceTo(state.desiredTarget);
+  const amount = clamp(Math.abs(deltaY) * 0.95, 18, 240) * Math.sign(deltaY);
+  const nextDistance = clamp(distance + amount, 130, 1550);
+  const change = nextDistance - distance;
+  state.desiredPosition.add(forward.multiplyScalar(-change));
+}
+
+function flyToProject(state: SceneRefs, position: THREE.Vector3) {
+  const currentDirection = state.desiredPosition.clone().sub(state.desiredTarget);
+  if (currentDirection.lengthSq() < 1) currentDirection.set(0, 120, 520);
+  currentDirection.normalize();
+  state.desiredTarget.copy(position);
+  state.desiredPosition.copy(position).add(currentDirection.multiplyScalar(420));
 }
 
 function disposeGroup(group: THREE.Group) {
