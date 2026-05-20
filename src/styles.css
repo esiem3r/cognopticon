@@ -29,7 +29,9 @@ textarea {
 
 button {
   border: 1px solid rgba(244, 238, 205, 0.22);
-  background: rgba(232, 240, 224, 0.08);
+  background:
+    linear-gradient(135deg, rgba(128, 228, 201, 0.13), transparent 38%),
+    rgba(6, 12, 14, 0.96);
   color: #f7f3dc;
   min-height: 38px;
   border-radius: 8px;
@@ -43,7 +45,9 @@ button {
 }
 
 button:hover {
-  background: rgba(232, 240, 224, 0.14);
+  background:
+    linear-gradient(135deg, rgba(128, 228, 201, 0.22), transparent 42%),
+    rgba(9, 17, 19, 0.98);
   border-color: rgba(244, 238, 205, 0.38);
 }
 
@@ -64,7 +68,10 @@ button:hover {
   align-items: center;
   padding: 14px 18px;
   border-bottom: 1px solid rgba(183, 210, 218, 0.14);
-  background: rgba(6, 10, 13, 0.98);
+  background:
+    linear-gradient(90deg, rgba(128, 228, 201, 0.07), transparent 34%, rgba(249, 138, 212, 0.045)),
+    rgba(3, 8, 10, 0.99);
+  box-shadow: inset 0 -1px 0 rgba(128, 228, 201, 0.08);
 }
 
 .brand-lockup,
@@ -230,20 +237,34 @@ select {
   min-height: 42px;
   padding: 0;
   border-radius: 50%;
-  background: rgba(5, 8, 10, 0.72);
-  border-color: rgba(128, 228, 201, 0.28);
-  box-shadow: 0 0 22px rgba(128, 228, 201, 0.1);
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 242, 191, 0.18), transparent 28%),
+    rgba(4, 10, 12, 0.98);
+  border-color: rgba(128, 228, 201, 0.42);
+  box-shadow:
+    0 0 24px rgba(128, 228, 201, 0.2),
+    inset 0 0 18px rgba(128, 228, 201, 0.08);
 }
 
 .queue-popover,
 .filter-popover {
   position: absolute;
   width: min(360px, calc(100vw - 36px));
-  border: 1px solid rgba(183, 210, 218, 0.18);
-  border-radius: 8px;
-  background: rgba(5, 9, 12, 0.985);
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.46);
-  backdrop-filter: blur(18px);
+  border: 1px solid rgba(128, 228, 201, 0.34);
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, rgba(128, 228, 201, 0.08) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(128, 228, 201, 0.055) 1px, transparent 1px),
+    linear-gradient(135deg, rgba(128, 228, 201, 0.12), rgba(249, 138, 212, 0.045) 55%, rgba(255, 209, 102, 0.055)),
+    rgba(2, 8, 10, 0.992);
+  background-size: 18px 18px, 18px 18px, auto, auto;
+  box-shadow:
+    0 20px 70px rgba(0, 0, 0, 0.62),
+    0 0 32px rgba(128, 228, 201, 0.15),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+    inset 0 0 36px rgba(128, 228, 201, 0.055);
+  backdrop-filter: blur(12px) saturate(1.35);
+  clip-path: polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
 }
 
 .queue-popover {
@@ -282,13 +303,16 @@ select {
 }
 
 .task-card {
-  border: 1px solid rgba(171, 200, 204, 0.16);
-  border-radius: 8px;
-  background: rgba(15, 22, 24, 0.98);
+  border: 1px solid rgba(171, 200, 204, 0.22);
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, rgba(128, 228, 201, 0.08), transparent 36%),
+    rgba(8, 15, 17, 0.99);
 }
 
 .task-card[open] {
-  border-color: rgba(128, 228, 201, 0.3);
+  border-color: rgba(128, 228, 201, 0.52);
+  box-shadow: inset 3px 0 0 rgba(128, 228, 201, 0.46);
 }
 
 .task-card summary {
@@ -374,9 +398,14 @@ select {
 
 .filter-trigger {
   min-height: 38px;
-  background: rgba(5, 8, 10, 0.92);
-  border-color: rgba(128, 228, 201, 0.22);
+  background:
+    linear-gradient(135deg, rgba(128, 228, 201, 0.16), transparent 48%),
+    rgba(4, 10, 12, 0.98);
+  border-color: rgba(128, 228, 201, 0.4);
   color: rgba(236, 248, 244, 0.86);
+  box-shadow:
+    0 0 24px rgba(128, 228, 201, 0.12),
+    inset 0 0 20px rgba(128, 228, 201, 0.055);
 }
 
 .filter-trigger strong {
@@ -458,7 +487,10 @@ select {
   overflow: auto;
   padding: 20px;
   border-left: 1px solid rgba(183, 210, 218, 0.14);
-  background: rgba(8, 14, 17, 0.99);
+  background:
+    linear-gradient(90deg, rgba(128, 228, 201, 0.045), transparent 46%),
+    rgba(5, 11, 13, 0.995);
+  box-shadow: inset 1px 0 0 rgba(128, 228, 201, 0.08);
 }
 
 .dossier-header {
@@ -489,9 +521,11 @@ select {
 
 .metric {
   min-height: 58px;
-  border-radius: 8px;
-  border: 1px solid rgba(171, 200, 204, 0.13);
-  background: rgba(15, 22, 24, 0.98);
+  border-radius: 4px;
+  border: 1px solid rgba(171, 200, 204, 0.22);
+  background:
+    linear-gradient(135deg, rgba(128, 228, 201, 0.08), transparent 52%),
+    rgba(8, 15, 17, 0.99);
   padding: 9px 10px;
 }
 
@@ -524,17 +558,21 @@ select {
 }
 
 .next-move {
-  background: rgba(34, 30, 19, 0.96);
+  background:
+    linear-gradient(135deg, rgba(255, 209, 102, 0.12), transparent 54%),
+    rgba(28, 25, 15, 0.99);
   margin: 0 -10px;
   padding: 14px 10px !important;
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
 .decision-band {
-  background: rgba(12, 29, 28, 0.96);
+  background:
+    linear-gradient(135deg, rgba(128, 228, 201, 0.16), transparent 56%),
+    rgba(8, 24, 23, 0.99);
   margin: 0 -10px;
   padding: 14px 10px !important;
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
 .decision-band strong {
@@ -549,9 +587,11 @@ select {
 
 .relationship-item,
 .evidence-item {
-  border: 1px solid rgba(171, 200, 204, 0.12);
-  background: rgba(15, 22, 24, 0.98);
-  border-radius: 8px;
+  border: 1px solid rgba(171, 200, 204, 0.2);
+  background:
+    linear-gradient(90deg, rgba(128, 228, 201, 0.07), transparent 40%),
+    rgba(8, 15, 17, 0.99);
+  border-radius: 4px;
   padding: 10px;
 }
 
@@ -592,7 +632,9 @@ select {
   margin: 0 -20px -20px;
   padding: 14px 20px 18px;
   border-top: 1px solid rgba(183, 210, 218, 0.14);
-  background: rgba(8, 14, 17, 0.99);
+  background:
+    linear-gradient(0deg, rgba(128, 228, 201, 0.08), transparent 82%),
+    rgba(5, 11, 13, 0.995);
 }
 
 .dossier-actions button,

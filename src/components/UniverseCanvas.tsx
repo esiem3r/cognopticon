@@ -195,8 +195,10 @@ export function UniverseCanvas({
       if (!state) return;
       state.starField.rotation.y = time * 0.000025;
       state.projectGroup.children.forEach((child) => {
-        child.rotation.y += 0.006;
-        child.rotation.x += 0.002;
+        const spin = child.userData.spin as { x: number; y: number; z: number } | undefined;
+        child.rotation.x += spin?.x ?? 0.002;
+        child.rotation.y += spin?.y ?? 0.006;
+        child.rotation.z += spin?.z ?? 0;
       });
       updateObserverOrbit(state);
       updateCamera(state);
@@ -223,12 +225,13 @@ export function UniverseCanvas({
         const worldPosition = position.clone().applyMatrix4(state.graphGroup.matrixWorld);
         const projected = worldPosition.clone().project(state.camera);
         const active = project.id === latest.selectedId || project.id === latest.hoveredId;
+        const centerNode = project.id === "cognopticon";
         return {
           id: project.id,
           name: project.name,
           x: (projected.x * 0.5 + 0.5) * rect.width,
           y: (-projected.y * 0.5 + 0.5) * rect.height,
-          visible: projected.z < 1 && (active || state.camera.position.distanceTo(worldPosition) < 1100),
+          visible: !centerNode && projected.z < 1 && (active || state.camera.position.distanceTo(worldPosition) < 1100),
           active
         };
       });
@@ -279,7 +282,17 @@ export function UniverseCanvas({
       const sourceVisible = filteredIds.has(relationship.source);
       const targetVisible = filteredIds.has(relationship.target);
       const active = relationship.source === selectedId || relationship.target === selectedId;
-      state.linkGroup.add(createRelationshipFilament(source, target, relationship, sourceVisible && targetVisible, active));
+      const sourceProject = projects.find((project) => project.id === relationship.source);
+      const targetProject = projects.find((project) => project.id === relationship.target);
+      state.linkGroup.add(createRelationshipFilament(
+        source,
+        target,
+        relationship,
+        sourceVisible && targetVisible,
+        active,
+        nodeVisualRadius(sourceProject),
+        nodeVisualRadius(targetProject)
+      ));
     }
 
   }, [filteredIds, hoveredId, projectPositions, projects, relationships, selectedId]);
@@ -297,7 +310,7 @@ export function UniverseCanvas({
     <div ref={mountRef} className="universe-frame three-universe">
       <div className="latent-haze" aria-hidden />
       <div className="project-label-layer" aria-hidden>
-        {labels.map((label) => (
+        {labels.filter((label) => label.id !== "cognopticon").map((label) => (
           <span
             key={label.id}
             className={label.active ? "project-label active" : "project-label"}
@@ -340,9 +353,15 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
   const color = new THREE.Color(domainColors[project.domain]);
   const warm = new THREE.Color("#fff2bf");
   const isCenter = project.id === "cognopticon";
-  const radius = isCenter ? 31 : 8 + project.substance * 12;
+  const radius = nodeVisualRadius(project);
+  const seed = stableHash(project.id);
   const group = new THREE.Group();
   group.userData.projectId = project.id;
+  group.userData.spin = {
+    x: (0.0008 + ((seed % 11) / 11) * 0.0022) * (seed % 2 === 0 ? 1 : -1),
+    y: (0.0024 + ((seed % 17) / 17) * 0.0052) * (seed % 3 === 0 ? -1 : 1),
+    z: (0.0003 + ((seed % 7) / 7) * 0.0016) * (seed % 5 === 0 ? -1 : 1)
+  };
 
   const sphere = new THREE.Mesh(
     new THREE.SphereGeometry(radius, 64, 40),
@@ -440,8 +459,9 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
       depthWrite: false
     })
   );
-  ring.rotation.x = Math.PI * 0.58;
-  ring.rotation.y = Math.PI * 0.18;
+  ring.rotation.x = Math.PI * (0.22 + ((seed % 41) / 41) * 0.62);
+  ring.rotation.y = Math.PI * (0.08 + ((seed % 29) / 29) * 0.48);
+  ring.rotation.z = Math.PI * (((seed % 23) / 23) * 0.36);
   group.add(ring);
 
   const polarRing = new THREE.Mesh(
@@ -454,9 +474,9 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
       depthWrite: false
     })
   );
-  polarRing.rotation.x = Math.PI * 0.08;
-  polarRing.rotation.y = Math.PI * 0.72;
-  polarRing.rotation.z = Math.PI * 0.18;
+  polarRing.rotation.x = Math.PI * (0.04 + ((seed % 31) / 31) * 0.4);
+  polarRing.rotation.y = Math.PI * (0.38 + ((seed % 37) / 37) * 0.56);
+  polarRing.rotation.z = Math.PI * (0.1 + ((seed % 19) / 19) * 0.52);
   group.add(polarRing);
 
   return group as unknown as THREE.Mesh;
@@ -467,20 +487,68 @@ function createRelationshipFilament(
   target: THREE.Vector3,
   relationship: ProjectRelationship,
   visible: boolean,
-  active: boolean
+  active: boolean,
+  sourceRadius: number,
+  targetRadius: number
 ) {
-  const middle = source.clone().lerp(target, 0.5);
+  const direction = target.clone().sub(source);
+  const distance = direction.length();
+  if (distance < 1) return new THREE.Group();
+  direction.normalize();
+  const start = source.clone().add(direction.clone().multiplyScalar(sourceRadius * 1.55));
+  const end = target.clone().add(direction.clone().multiplyScalar(-targetRadius * 1.55));
+  const middle = start.clone().lerp(end, 0.5);
   const outward = middle.lengthSq() > 1 ? middle.clone().normalize() : new THREE.Vector3(0, 1, 0);
   middle.add(outward.multiplyScalar(42 + relationship.strength * 94));
-  const curve = new THREE.QuadraticBezierCurve3(source, middle, target);
-  const geometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(64));
-  const material = new THREE.LineBasicMaterial({
-    color: active ? "#fff0b8" : "#9bd6e2",
+  const curve = new THREE.QuadraticBezierCurve3(start, middle, end);
+  const points = curve.getPoints(72);
+  const alpha = new Float32Array(points.length);
+  for (let index = 0; index < points.length; index += 1) {
+    const t = index / (points.length - 1);
+    const endFade = Math.min(1, Math.min(t, 1 - t) / 0.22);
+    alpha[index] = Math.pow(endFade, 1.45);
+  }
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  geometry.setAttribute("lineAlpha", new THREE.BufferAttribute(alpha, 1));
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      color: { value: new THREE.Color(active ? "#fff0b8" : "#9bd6e2") },
+      opacity: { value: active ? 0.76 : visible ? 0.32 : 0.06 }
+    },
+    vertexShader: `
+      attribute float lineAlpha;
+      varying float vAlpha;
+      void main() {
+        vAlpha = lineAlpha;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 color;
+      uniform float opacity;
+      varying float vAlpha;
+      void main() {
+        gl_FragColor = vec4(color, opacity * vAlpha);
+      }
+    `,
     transparent: true,
-    opacity: active ? 0.82 : visible ? 0.34 : 0.08,
-    blending: THREE.AdditiveBlending
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
   });
   return new THREE.Line(geometry, material);
+}
+
+function nodeVisualRadius(project?: ProjectDossier) {
+  if (!project) return 18;
+  return project.id === "cognopticon" ? 31 : 8 + project.substance * 12;
+}
+
+function stableHash(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(31, hash) + value.charCodeAt(index);
+  }
+  return Math.abs(hash);
 }
 
 function createBoundarySphere() {
@@ -648,14 +716,14 @@ function updateCamera(state: SceneRefs) {
   if (state.panVelocity.lengthSq() > 0.0001) {
     state.desiredPosition.add(state.panVelocity);
     state.desiredTarget.add(state.panVelocity);
-    state.panVelocity.multiplyScalar(0.88);
+    state.panVelocity.multiplyScalar(0.92);
   }
   if (Math.abs(state.dollyVelocity) > 0.001) {
     applyDolly(state, state.dollyVelocity);
-    state.dollyVelocity *= 0.86;
+    state.dollyVelocity *= 0.9;
   }
-  state.target.lerp(state.desiredTarget, 0.12);
-  state.camera.position.lerp(state.desiredPosition, 0.12);
+  state.target.lerp(state.desiredTarget, 0.095);
+  state.camera.position.lerp(state.desiredPosition, 0.095);
   state.camera.lookAt(state.target);
 }
 
@@ -667,31 +735,31 @@ function updateObserverOrbit(state: SceneRefs) {
   spherical.phi = clamp(spherical.phi - state.rotationVelocity.y, 0.18, Math.PI - 0.18);
   offset.setFromSpherical(spherical);
   state.desiredPosition.copy(state.desiredTarget).add(offset);
-  state.rotationVelocity.multiplyScalar(0.9);
+  state.rotationVelocity.multiplyScalar(0.93);
 }
 
 function orbitObserver(state: SceneRefs, dx: number, dy: number) {
-  state.rotationVelocity.x += dx * 0.00105;
-  state.rotationVelocity.y += dy * 0.00088;
-  state.rotationVelocity.multiplyScalar(0.82);
+  state.rotationVelocity.x += dx * 0.00115;
+  state.rotationVelocity.y += dy * 0.00096;
+  state.rotationVelocity.multiplyScalar(0.88);
 }
 
 function trackpadGlideObserver(state: SceneRefs, deltaX: number, deltaY: number) {
   const absX = Math.abs(deltaX);
   const absY = Math.abs(deltaY);
   if (absX > 0.2) {
-    const orbitImpulse = clamp(absX * 0.00042, 0.00004, 0.032) * Math.sign(deltaX);
+    const orbitImpulse = clamp(absX * 0.0005, 0.00004, 0.04) * Math.sign(deltaX);
     state.rotationVelocity.x += orbitImpulse;
   }
   if (absY > 0.2) {
-    const dollyImpulse = clamp(absY * 0.18, 1.8, 48) * Math.sign(deltaY);
-    state.dollyVelocity = state.dollyVelocity * 0.62 + dollyImpulse;
+    const dollyImpulse = clamp(absY * 0.2, 1.8, 54) * Math.sign(deltaY);
+    state.dollyVelocity = state.dollyVelocity * 0.68 + dollyImpulse;
   }
 }
 
 function pinchZoomObserver(state: SceneRefs, deltaY: number) {
-  const impulse = clamp(Math.abs(deltaY) * 0.36, 2.4, 72) * Math.sign(deltaY);
-  state.dollyVelocity = state.dollyVelocity * 0.48 + impulse;
+  const impulse = clamp(Math.abs(deltaY) * 0.4, 2.4, 80) * Math.sign(deltaY);
+  state.dollyVelocity = state.dollyVelocity * 0.56 + impulse;
 }
 
 function panObserver(state: SceneRefs, dx: number, dy: number) {
@@ -702,7 +770,7 @@ function panObserver(state: SceneRefs, dx: number, dy: number) {
   const up = new THREE.Vector3().crossVectors(right, forward).normalize();
   const movement = right.multiplyScalar(-dx * scale * 0.62).add(up.multiplyScalar(dy * scale * 0.62));
   state.panVelocity.add(movement);
-  state.panVelocity.multiplyScalar(0.82);
+  state.panVelocity.multiplyScalar(0.88);
 }
 
 function applyDolly(state: SceneRefs, amount: number) {
