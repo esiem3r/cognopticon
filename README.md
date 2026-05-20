@@ -1,6 +1,6 @@
-# Cosmopticon
+# Cognopticon
 
-Cosmopticon is a local spatial observatory for projects, relationships, and agent mission briefs.
+Cognopticon is a local spatial observatory for projects, relationships, and agent mission briefs.
 
 It is designed for a workspace where the hard problem is not idea generation. The hard problem is keeping work visible, bounded, beautiful enough to return to, and constrained enough that agents can finish without drifting.
 
@@ -43,7 +43,7 @@ The mission drawer supports copying the brief or downloading it as Markdown. Dow
 
 ## Daily Use
 
-1. Start Cosmopticon with `npm run dev`.
+1. Start Cognopticon with `npm run dev`.
 2. Pick a focus mode: active work, triage, agent harnesses, research, or memory/corpus.
 3. Use the next action queue to choose the next project.
 4. Open the dossier and read the decision, friction, next move, and constraints.

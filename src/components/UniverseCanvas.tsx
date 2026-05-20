@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { domainColors } from "../lib/domain";
-import type { ProjectDossier, ProjectRelationship } from "../types/cosmopticon";
+import type { ProjectDossier, ProjectRelationship } from "../types/cognopticon";
 
 const UNIVERSE_RADIUS = 500;
 const CAMERA_NEAR_DISTANCE = 300;
@@ -312,7 +312,7 @@ export function UniverseCanvas({
 }
 
 function projectVector(project: ProjectDossier, index: number) {
-  if (project.id === "cosmopticon") return new THREE.Vector3(0, 0, 0);
+  if (project.id === "cognopticon") return new THREE.Vector3(0, 0, 0);
 
   const domainAngle: Record<ProjectDossier["domain"], number> = {
     visualization: 0.15,
@@ -339,7 +339,7 @@ function projectVector(project: ProjectDossier, index: number) {
 function createProjectBody(project: ProjectDossier, visible: boolean, active: boolean) {
   const color = new THREE.Color(domainColors[project.domain]);
   const warm = new THREE.Color("#fff2bf");
-  const isCenter = project.id === "cosmopticon";
+  const isCenter = project.id === "cognopticon";
   const radius = isCenter ? 31 : 8 + project.substance * 12;
   const group = new THREE.Group();
   group.userData.projectId = project.id;

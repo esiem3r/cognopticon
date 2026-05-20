@@ -1,8 +1,8 @@
 [
   {
-    "id": "cosmopticon",
-    "name": "Cosmopticon",
-    "path": "/home/br34d/cosmopticon",
+    "id": "cognopticon",
+    "name": "Cognopticon",
+    "path": "/home/br34d/cognopticon",
     "status": "forming",
     "health": "promising",
     "domain": "visualization",
@@ -22,7 +22,7 @@
       "Every feature must reduce drift or increase completion pressure."
     ],
     "evidence": [
-      { "label": "Standalone app root", "path": "/home/br34d/cosmopticon", "kind": "repo" }
+      { "label": "Standalone app root", "path": "/home/br34d/cognopticon", "kind": "repo" }
     ],
     "tags": ["spatial", "completion", "agent-briefs", "local-first"]
   },
@@ -39,7 +39,7 @@
     "purpose": "A local control plane for Codex work: workspace status, safety policy, sessions, jobs, snapshots, and handoffs.",
     "whyItMatters": "It is the operational spine that can keep agentic work from becoming amnesiac or reckless.",
     "currentFriction": "The current UI is utilitarian and does not yet provide a rich visual model of the workspace.",
-    "nextMove": "Expose its registry, sessions, and command safety ideas as future Cosmopticon data sources.",
+    "nextMove": "Expose its registry, sessions, and command safety ideas as future Cognopticon data sources.",
     "decision": "build",
     "decisionRationale": "It already contains the strongest operational substrate for safe agent work.",
     "nextReview": "2026-05-24",
@@ -92,7 +92,7 @@
     "substance": 0.88,
     "position": { "x": 160, "y": 190 },
     "purpose": "A graph-native corpus engine for mapping and retrieving conversation structure.",
-    "whyItMatters": "It can become the deeper semantic substrate beneath Cosmopticon’s visible project universe.",
+    "whyItMatters": "It can become the deeper semantic substrate beneath Cognopticon’s visible project universe.",
     "currentFriction": "Graph intelligence is powerful but can remain invisible without a calm, inspectable interface.",
     "nextMove": "Design a narrow adapter that returns project-linked conversations and relationship evidence.",
     "decision": "build",
@@ -149,7 +149,7 @@
     "purpose": "A Markdown-first agent harness and continuity layer inspired by Vie McCoy’s original scaffold.",
     "whyItMatters": "It represents the bridge between personal taste, ritualized agent process, and practical orchestration.",
     "currentFriction": "Harness ideas can sprawl into ceremony unless grounded in real work packets and acceptance criteria.",
-    "nextMove": "Let Cosmopticon generate Excalibur-compatible mission briefs before deeper integration.",
+    "nextMove": "Let Cognopticon generate Excalibur-compatible mission briefs before deeper integration.",
     "decision": "build",
     "decisionRationale": "It is the most natural target for turning mission briefs into a reusable agent harness practice.",
     "nextReview": "2026-05-23",
@@ -204,14 +204,14 @@
     "purpose": "An experimental operator product and personal cognitive laboratory scaffold.",
     "whyItMatters": "It captures a product-shaped version of the same desire: systems that make thought and agent work governable.",
     "currentFriction": "Core data model and product boundaries are still unresolved.",
-    "nextMove": "Mine it for interface concepts after Cosmopticon has a stable local v1.",
+    "nextMove": "Mine it for interface concepts after Cognopticon has a stable local v1.",
     "decision": "pause",
-    "decisionRationale": "Its concerns overlap with Cosmopticon and Codex Operator; pause until roles are clearer.",
+    "decisionRationale": "Its concerns overlap with Cognopticon and Codex Operator; pause until roles are clearer.",
     "nextReview": "2026-06-03",
     "missionConstraints": [
       "Do not split focus between overlapping operator products.",
       "Promote only concrete ideas with working code or clear specs.",
-      "Avoid duplicating Cosmopticon’s project-map role."
+      "Avoid duplicating Cognopticon’s project-map role."
     ],
     "evidence": [
       { "label": "Project root", "path": "/home/br34d/operator-studio", "kind": "repo" }
@@ -258,7 +258,7 @@
     "purpose": "A local-first agent harness/control-plane experiment.",
     "whyItMatters": "It points toward the broader need for durable agent processes rather than isolated chat windows.",
     "currentFriction": "It overlaps conceptually with Excalibur and Codex Operator and needs a clear role.",
-    "nextMove": "Use Cosmopticon to decide whether it is active, merged, paused, or archived.",
+    "nextMove": "Use Cognopticon to decide whether it is active, merged, paused, or archived.",
     "decision": "triage",
     "decisionRationale": "It may contain useful harness ideas, but its role is ambiguous beside stronger active systems.",
     "nextReview": "2026-05-29",

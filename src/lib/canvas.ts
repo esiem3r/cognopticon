@@ -1,5 +1,5 @@
 import { domainColors } from "./domain";
-import type { ProjectDossier, ProjectRelationship } from "../types/cosmopticon";
+import type { ProjectDossier, ProjectRelationship } from "../types/cognopticon";
 
 export interface Camera {
   x: number;

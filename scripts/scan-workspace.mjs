@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "
 import { basename, join } from "node:path";
 import roots from "../src/data/workspace-roots.json" with { type: "json" };
 
-const maxDepth = Number(process.env.COSMOPTICON_SCAN_DEPTH ?? 3);
+const maxDepth = Number(process.env.COGNOPTICON_SCAN_DEPTH ?? 3);
 const outputPath = process.argv.includes("--write")
   ? process.argv[process.argv.indexOf("--write") + 1] || "workspace-scan.json"
   : null;

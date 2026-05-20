@@ -1,5 +1,5 @@
 import { Copy, X } from "lucide-react";
-import type { MissionBrief, ProjectDossier } from "../types/cosmopticon";
+import type { MissionBrief, ProjectDossier } from "../types/cognopticon";
 
 interface MissionDrawerProps {
   brief: MissionBrief | null;

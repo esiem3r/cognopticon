@@ -5,7 +5,7 @@ import { MissionDrawer } from "./components/MissionDrawer";
 import { UniverseCanvas } from "./components/UniverseCanvas";
 import { projectDossiers, projectRelationships } from "./lib/data";
 import { domainLabels, focusModeMatches, focusModes, generateMissionBrief, nextActionQueue, projectMatches, statusLabels, type FocusMode } from "./lib/domain";
-import type { MissionBrief, ProjectDomain, ProjectDossier, ProjectStatus } from "./types/cosmopticon";
+import type { MissionBrief, ProjectDomain, ProjectDossier, ProjectStatus } from "./types/cognopticon";
 
 const allDomains = Array.from(new Set(projectDossiers.map((project) => project.domain))).sort() as ProjectDomain[];
 const allStatuses = Array.from(new Set(projectDossiers.map((project) => project.status))).sort() as ProjectStatus[];
@@ -19,7 +19,7 @@ const projectTypeFilters = [
 ] as const;
 
 export default function App() {
-  const [selectedId, setSelectedId] = useState("cosmopticon");
+  const [selectedId, setSelectedId] = useState("cognopticon");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [domain, setDomain] = useState<ProjectDomain | "all">("all");
@@ -82,11 +82,11 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <section className="topbar" aria-label="Cosmopticon controls">
+      <section className="topbar" aria-label="Cognopticon controls">
         <div className="brand-lockup">
           <Sparkles size={18} aria-hidden />
           <div>
-            <h1>Cosmopticon</h1>
+            <h1>Cognopticon</h1>
             <span>{projectDossiers.length} projects / {projectRelationships.length} relationships</span>
           </div>
         </div>

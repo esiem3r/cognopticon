@@ -1,4 +1,4 @@
-import type { ProjectDossier, ProjectRelationship } from "../types/cosmopticon";
+import type { ProjectDossier, ProjectRelationship } from "../types/cognopticon";
 
 const statuses = new Set(["active", "forming", "legacy", "paused", "archive"]);
 const health = new Set(["strong", "promising", "fragile", "stalled", "unknown"]);
@@ -6,7 +6,7 @@ const domains = new Set(["agentics", "memory", "research", "visualization", "cor
 const decisions = new Set(["build", "triage", "merge", "pause", "archive"]);
 const relationshipKinds = new Set(["feeds", "depends_on", "inspired_by", "supersedes", "archive_source", "agent_target", "reference"]);
 
-export function validateCosmopticonData(projects: ProjectDossier[], relationships: ProjectRelationship[]) {
+export function validateCognopticonData(projects: ProjectDossier[], relationships: ProjectRelationship[]) {
   const errors: string[] = [];
   const projectIds = new Set<string>();
   const relationshipIds = new Set<string>();

@@ -1,6 +1,6 @@
 import projects from "../data/projects.json";
 import relationships from "../data/relationships.json";
-import type { ProjectDossier, ProjectRelationship } from "../types/cosmopticon";
+import type { ProjectDossier, ProjectRelationship } from "../types/cognopticon";
 
 export const projectDossiers = projects as ProjectDossier[];
 export const projectRelationships = relationships as ProjectRelationship[];

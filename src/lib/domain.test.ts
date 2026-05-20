@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { focusModeMatches, generateMissionBrief, nextActionQueue, projectMatches, relatedProjects, scoreProject } from "./domain";
-import type { ProjectDossier, ProjectRelationship } from "../types/cosmopticon";
+import type { ProjectDossier, ProjectRelationship } from "../types/cognopticon";
 
 const projects: ProjectDossier[] = [
   {

@@ -6,7 +6,7 @@ import type {
   ProjectHealth,
   ProjectRelationship,
   ProjectStatus
-} from "../types/cosmopticon";
+} from "../types/cognopticon";
 
 export const domainLabels: Record<ProjectDomain, string> = {
   agentics: "Agentics",

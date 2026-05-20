@@ -1,6 +1,6 @@
 import { ClipboardList, ExternalLink, FileText, Network, ShieldCheck } from "lucide-react";
 import { decisionLabels, domainColors, domainLabels, healthLabels, relatedProjects, statusLabels } from "../lib/domain";
-import type { ProjectDossier, ProjectRelationship } from "../types/cosmopticon";
+import type { ProjectDossier, ProjectRelationship } from "../types/cognopticon";
 
 interface DossierPanelProps {
   project: ProjectDossier;

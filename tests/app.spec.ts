@@ -2,9 +2,9 @@ import { expect, test } from "@playwright/test";
 
 test("renders the project universe and opens a mission brief", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByLabel("Cosmopticon controls").getByRole("heading", { name: "Cosmopticon" })).toBeVisible();
+  await expect(page.getByLabel("Cognopticon controls").getByRole("heading", { name: "Cognopticon" })).toBeVisible();
   await expect(page.getByTestId("universe-canvas")).toBeVisible();
-  await expect(page.getByLabel("Cosmopticon dossier").getByRole("heading", { name: "Cosmopticon" })).toBeVisible();
+  await expect(page.getByLabel("Cognopticon dossier").getByRole("heading", { name: "Cognopticon" })).toBeVisible();
 
   await page.waitForTimeout(250);
   const webglProof = await page.getByTestId("universe-canvas").evaluate((canvas: HTMLCanvasElement) => {
@@ -20,8 +20,8 @@ test("renders the project universe and opens a mission brief", async ({ page }) 
   expect(webglProof.dataLength).toBeGreaterThan(5000);
 
   await page.getByRole("button", { name: "Generate Mission Brief", exact: true }).click();
-  await expect(page.getByLabel("Generated mission brief")).toContainText("# Mission Brief: Cosmopticon");
-  await expect(page.getByRole("link", { name: "Download Brief" })).toHaveAttribute("download", /cosmopticon-.*-mission\.md/);
+  await expect(page.getByLabel("Generated mission brief")).toContainText("# Mission Brief: Cognopticon");
+  await expect(page.getByRole("link", { name: "Download Brief" })).toHaveAttribute("download", /cognopticon-.*-mission\.md/);
 });
 
 test("search focuses a local project dossier", async ({ page }) => {

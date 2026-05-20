@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hitTest, screenProjects, screenToWorld, worldToScreen } from "./canvas";
-import type { ProjectDossier } from "../types/cosmopticon";
+import type { ProjectDossier } from "../types/cognopticon";
 
 const project: ProjectDossier = {
   id: "cosmos",

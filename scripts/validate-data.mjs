@@ -57,12 +57,12 @@ for (const [index, relationship] of relationships.entries()) {
 }
 
 if (errors.length) {
-  console.error(`Cosmopticon data validation failed with ${errors.length} issue(s):`);
+  console.error(`Cognopticon data validation failed with ${errors.length} issue(s):`);
   for (const error of errors) console.error(`- ${error}`);
   process.exit(1);
 }
 
-console.log(`Cosmopticon data valid: ${projects.length} projects, ${relationships.length} relationships.`);
+console.log(`Cognopticon data valid: ${projects.length} projects, ${relationships.length} relationships.`);
 
 function requireString(record, field, label) {
   if (typeof record[field] !== "string" || record[field].trim() === "") {
