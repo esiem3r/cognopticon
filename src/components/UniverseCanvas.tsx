@@ -171,8 +171,10 @@ export function UniverseCanvas({
       if (!state) return;
       if (event.shiftKey) {
         panObserver(state, -event.deltaX * 1.15, -event.deltaY * 1.15);
+      } else if (event.ctrlKey || event.metaKey) {
+        pinchZoomObserver(state, event.deltaY);
       } else {
-        dollyObserver(state, event.deltaY);
+        trackpadGlideObserver(state, event.deltaX, event.deltaY);
       }
     };
 
@@ -646,14 +648,14 @@ function updateCamera(state: SceneRefs) {
   if (state.panVelocity.lengthSq() > 0.0001) {
     state.desiredPosition.add(state.panVelocity);
     state.desiredTarget.add(state.panVelocity);
-    state.panVelocity.multiplyScalar(0.82);
+    state.panVelocity.multiplyScalar(0.88);
   }
   if (Math.abs(state.dollyVelocity) > 0.001) {
     applyDolly(state, state.dollyVelocity);
-    state.dollyVelocity *= 0.78;
+    state.dollyVelocity *= 0.86;
   }
-  state.target.lerp(state.desiredTarget, 0.16);
-  state.camera.position.lerp(state.desiredPosition, 0.16);
+  state.target.lerp(state.desiredTarget, 0.12);
+  state.camera.position.lerp(state.desiredPosition, 0.12);
   state.camera.lookAt(state.target);
 }
 
@@ -665,13 +667,31 @@ function updateObserverOrbit(state: SceneRefs) {
   spherical.phi = clamp(spherical.phi - state.rotationVelocity.y, 0.18, Math.PI - 0.18);
   offset.setFromSpherical(spherical);
   state.desiredPosition.copy(state.desiredTarget).add(offset);
-  state.rotationVelocity.multiplyScalar(0.84);
+  state.rotationVelocity.multiplyScalar(0.9);
 }
 
 function orbitObserver(state: SceneRefs, dx: number, dy: number) {
   state.rotationVelocity.x += dx * 0.00105;
   state.rotationVelocity.y += dy * 0.00088;
-  state.rotationVelocity.multiplyScalar(0.7);
+  state.rotationVelocity.multiplyScalar(0.82);
+}
+
+function trackpadGlideObserver(state: SceneRefs, deltaX: number, deltaY: number) {
+  const absX = Math.abs(deltaX);
+  const absY = Math.abs(deltaY);
+  if (absX > 0.2) {
+    const orbitImpulse = clamp(absX * 0.00042, 0.00004, 0.032) * Math.sign(deltaX);
+    state.rotationVelocity.x += orbitImpulse;
+  }
+  if (absY > 0.2) {
+    const dollyImpulse = clamp(absY * 0.18, 1.8, 48) * Math.sign(deltaY);
+    state.dollyVelocity = state.dollyVelocity * 0.62 + dollyImpulse;
+  }
+}
+
+function pinchZoomObserver(state: SceneRefs, deltaY: number) {
+  const impulse = clamp(Math.abs(deltaY) * 0.36, 2.4, 72) * Math.sign(deltaY);
+  state.dollyVelocity = state.dollyVelocity * 0.48 + impulse;
 }
 
 function panObserver(state: SceneRefs, dx: number, dy: number) {
@@ -682,12 +702,7 @@ function panObserver(state: SceneRefs, dx: number, dy: number) {
   const up = new THREE.Vector3().crossVectors(right, forward).normalize();
   const movement = right.multiplyScalar(-dx * scale * 0.62).add(up.multiplyScalar(dy * scale * 0.62));
   state.panVelocity.add(movement);
-  state.panVelocity.multiplyScalar(0.72);
-}
-
-function dollyObserver(state: SceneRefs, deltaY: number) {
-  const impulse = clamp(Math.abs(deltaY) * 0.28, 5, 90) * Math.sign(deltaY);
-  state.dollyVelocity = state.dollyVelocity * 0.35 + impulse;
+  state.panVelocity.multiplyScalar(0.82);
 }
 
 function applyDolly(state: SceneRefs, amount: number) {

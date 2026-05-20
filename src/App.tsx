@@ -116,7 +116,8 @@ export default function App() {
           <div className="canvas-hud" aria-label="Navigation hints">
             <span><Crosshair size={14} aria-hidden /> drag to orbit</span>
             <span>shift-drag to move</span>
-            <span>wheel or pinch to zoom</span>
+            <span>two-finger glide to orbit / enter</span>
+            <span>pinch to zoom</span>
             <span>click a body to enter</span>
           </div>
         </div>

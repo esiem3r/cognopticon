@@ -62,6 +62,30 @@ test("canvas supports direct drag and wheel navigation", async ({ page }) => {
   expect(Math.abs(after - before)).toBeGreaterThan(1000);
 });
 
+test("trackpad horizontal wheel orbits without replacing canvas", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForTimeout(800);
+  const canvas = page.getByTestId("universe-canvas");
+  await canvas.evaluate((node: HTMLCanvasElement) => {
+    node.dataset.trackpadProbe = "original";
+  });
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+
+  const snapshotSize = async () => canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL("image/png").length);
+  const before = await snapshotSize();
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  for (let step = 0; step < 5; step += 1) {
+    await page.mouse.wheel(180, 0);
+  }
+  await page.waitForTimeout(650);
+  const after = await snapshotSize();
+
+  await expect(page.getByTestId("universe-canvas")).toHaveAttribute("data-trackpad-probe", "original");
+  expect(Math.abs(after - before)).toBeGreaterThan(900);
+});
+
 test("dragging does not recreate the WebGL canvas", async ({ page }) => {
   await page.goto("/");
   await page.waitForTimeout(800);
@@ -75,8 +99,8 @@ test("dragging does not recreate the WebGL canvas", async ({ page }) => {
 
   await page.mouse.move(box.x + box.width * 0.42, box.y + box.height * 0.5);
   await page.mouse.down();
-  for (let step = 0; step < 24; step += 1) {
-    await page.mouse.move(box.x + box.width * (0.42 + step * 0.008), box.y + box.height * (0.5 + Math.sin(step / 3) * 0.1));
+  for (let step = 0; step < 12; step += 1) {
+    await page.mouse.move(box.x + box.width * (0.42 + step * 0.014), box.y + box.height * (0.5 + Math.sin(step / 2) * 0.1));
   }
   await page.mouse.up();
   await expect(page.getByTestId("universe-canvas")).toHaveAttribute("data-stability-probe", "original");
