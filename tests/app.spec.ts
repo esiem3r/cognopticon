@@ -36,7 +36,10 @@ test("focus modes and next action queue expose durable workflow", async ({ page 
   await page.getByLabel("Focus mode").selectOption("research");
   await page.getByRole("button", { name: "Toggle next action queue" }).click();
   await expect(page.getByRole("complementary", { name: "Next action queue" })).toContainText("Kern Dogs");
-  await page.getByRole("button", { name: /Kern Dogs/ }).first().click();
+  const kernDogsTask = page.locator(".task-card").filter({ hasText: "Kern Dogs" });
+  await kernDogsTask.locator("summary").click();
+  await kernDogsTask.getByLabel("Run a concrete verification and capture the result").check();
+  await expect(kernDogsTask.locator(".progress-ring")).toContainText("25");
   await expect(page.getByLabel("Kern Dogs dossier")).toContainText("Decision");
 });
 

@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", "IBM Plex Mono", "OCR A Std", "Share Tech Mono", Consolas, monospace;
   background: #05070a;
   color: #eef5f2;
   font-synthesis: none;
@@ -39,6 +39,7 @@ button {
   justify-content: center;
   gap: 8px;
   cursor: pointer;
+  letter-spacing: 0.01em;
 }
 
 button:hover {
@@ -63,7 +64,7 @@ button:hover {
   align-items: center;
   padding: 14px 18px;
   border-bottom: 1px solid rgba(183, 210, 218, 0.14);
-  background: rgba(6, 10, 13, 0.92);
+  background: rgba(6, 10, 13, 0.98);
 }
 
 .brand-lockup,
@@ -84,6 +85,7 @@ button:hover {
 .brand-lockup h1 {
   font-size: 18px;
   line-height: 1.1;
+  text-transform: uppercase;
 }
 
 .brand-lockup span,
@@ -98,7 +100,7 @@ button:hover {
 .search-box {
   height: 42px;
   border: 1px solid rgba(170, 198, 205, 0.18);
-  background: rgba(255, 255, 255, 0.055);
+  background: rgba(5, 11, 14, 0.98);
   border-radius: 8px;
   padding: 0 12px;
 }
@@ -125,7 +127,7 @@ select {
   height: 34px;
   border-radius: 7px;
   border: 1px solid rgba(170, 198, 205, 0.18);
-  background: #10191d;
+  background: #071013;
   color: #eef5f2;
   padding: 0 8px;
 }
@@ -239,7 +241,7 @@ select {
   width: min(360px, calc(100vw - 36px));
   border: 1px solid rgba(183, 210, 218, 0.18);
   border-radius: 8px;
-  background: rgba(7, 12, 15, 0.94);
+  background: rgba(5, 9, 12, 0.985);
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.46);
   backdrop-filter: blur(18px);
 }
@@ -248,6 +250,7 @@ select {
   top: 50px;
   left: 0;
   padding: 12px;
+  width: min(392px, calc(100vw - 36px));
 }
 
 .queue-popover header,
@@ -259,43 +262,119 @@ select {
   color: #fbf2c8;
 }
 
-.queue-popover > div {
+.queue-popover header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.queue-popover header span {
+  color: rgba(220, 232, 229, 0.56);
+  font-size: 11px;
+}
+
+.task-list {
   display: grid;
   gap: 8px;
   margin-top: 12px;
+  max-height: 235px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
-.queue-popover button:not(.icon-button) {
-  min-height: 58px;
+.task-card {
+  border: 1px solid rgba(171, 200, 204, 0.16);
+  border-radius: 8px;
+  background: rgba(15, 22, 24, 0.98);
+}
+
+.task-card[open] {
+  border-color: rgba(128, 228, 201, 0.3);
+}
+
+.task-card summary {
+  min-height: 72px;
   display: grid;
-  justify-items: start;
-  align-content: center;
-  text-align: left;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.task-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-summary-copy {
+  display: grid;
+  gap: 5px;
   overflow: hidden;
 }
 
-.queue-popover span,
-.queue-popover small {
+.task-card span,
+.task-card small {
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.queue-popover small {
+.task-card small {
   color: rgba(230, 240, 238, 0.62);
+  font-size: 11px;
+}
+
+.progress-ring {
+  --completion: 0%;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at center, #091012 55%, transparent 57%),
+    conic-gradient(#80e4c9 var(--completion), rgba(128, 228, 201, 0.14) 0);
+  color: #f7f3dc;
+  font-size: 10px;
+}
+
+.progress-ring::after {
+  content: "%";
+}
+
+.subtask-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 12px;
+}
+
+.subtask-list label {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  color: rgba(230, 240, 238, 0.78);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.subtask-list input {
+  margin-top: 2px;
+  accent-color: #80e4c9;
 }
 
 .filter-overlay {
   position: absolute;
-  left: 18px;
+  right: 18px;
   bottom: 18px;
   z-index: 3;
 }
 
 .filter-trigger {
   min-height: 38px;
-  background: rgba(5, 8, 10, 0.76);
+  background: rgba(5, 8, 10, 0.92);
   border-color: rgba(128, 228, 201, 0.22);
   color: rgba(236, 248, 244, 0.86);
 }
@@ -313,7 +392,7 @@ select {
 }
 
 .filter-popover {
-  left: 0;
+  right: 0;
   bottom: 46px;
   max-height: min(520px, calc(100vh - 180px));
   overflow: auto;
@@ -379,7 +458,7 @@ select {
   overflow: auto;
   padding: 20px;
   border-left: 1px solid rgba(183, 210, 218, 0.14);
-  background: #0b1114;
+  background: rgba(8, 14, 17, 0.99);
 }
 
 .dossier-header {
@@ -412,7 +491,7 @@ select {
   min-height: 58px;
   border-radius: 8px;
   border: 1px solid rgba(171, 200, 204, 0.13);
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(15, 22, 24, 0.98);
   padding: 9px 10px;
 }
 
@@ -445,14 +524,14 @@ select {
 }
 
 .next-move {
-  background: rgba(255, 209, 102, 0.055);
+  background: rgba(34, 30, 19, 0.96);
   margin: 0 -10px;
   padding: 14px 10px !important;
   border-radius: 8px;
 }
 
 .decision-band {
-  background: rgba(128, 228, 201, 0.055);
+  background: rgba(12, 29, 28, 0.96);
   margin: 0 -10px;
   padding: 14px 10px !important;
   border-radius: 8px;
@@ -471,7 +550,7 @@ select {
 .relationship-item,
 .evidence-item {
   border: 1px solid rgba(171, 200, 204, 0.12);
-  background: rgba(255, 255, 255, 0.038);
+  background: rgba(15, 22, 24, 0.98);
   border-radius: 8px;
   padding: 10px;
 }
@@ -513,7 +592,7 @@ select {
   margin: 0 -20px -20px;
   padding: 14px 20px 18px;
   border-top: 1px solid rgba(183, 210, 218, 0.14);
-  background: rgba(11, 17, 20, 0.96);
+  background: rgba(8, 14, 17, 0.99);
 }
 
 .dossier-actions button,
@@ -528,7 +607,7 @@ select {
   position: fixed;
   inset: 0;
   z-index: 10;
-  background: rgba(0, 0, 0, 0.38);
+  background: rgba(0, 0, 0, 0.48);
   display: flex;
   justify-content: flex-end;
 }
@@ -539,7 +618,7 @@ select {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   border-left: 1px solid rgba(244, 238, 205, 0.22);
-  background: #0b1114;
+  background: #070d10;
   box-shadow: -28px 0 80px rgba(0, 0, 0, 0.42);
 }
 

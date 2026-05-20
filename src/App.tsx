@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { type CSSProperties, useMemo, useState } from "react";
 import { Activity, ListChecks, Search, Sparkles, X } from "lucide-react";
 import { DossierPanel } from "./components/DossierPanel";
 import { MissionDrawer } from "./components/MissionDrawer";
@@ -30,6 +30,7 @@ export default function App() {
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
   const [brief, setBrief] = useState<MissionBrief | null>(null);
 
   const selectedProject = projectDossiers.find((project) => project.id === selectedId) ?? projectDossiers[0];
@@ -74,6 +75,10 @@ export default function App() {
 
   const queue = useMemo(() => nextActionQueue(filteredProjects).slice(0, 5), [filteredProjects]);
   const activeOverlayFilterCount = selectedDomains.size + selectedTypes.size + selectedProjects.size;
+
+  function toggleTask(taskId: string) {
+    setCompletedTasks((value) => toggleSetValue(value, taskId));
+  }
 
   return (
     <main className="app-shell">
@@ -157,18 +162,41 @@ export default function App() {
             {queueOpen && (
               <aside className="queue-popover" aria-label="Next action queue">
                 <header>
-                  <strong>Next Action Queue</strong>
+                  <div>
+                    <strong>Task Queue</strong>
+                    <span>{queue.length} projects prioritized</span>
+                  </div>
                   <button type="button" className="icon-button" aria-label="Close next action queue" onClick={() => setQueueOpen(false)}>
                     <X size={16} aria-hidden />
                   </button>
                 </header>
-                <div>
-                  {queue.map((project) => (
-                    <button key={project.id} type="button" onClick={() => setSelectedId(project.id)}>
-                      <span>{project.name}</span>
-                      <small>{project.nextMove}</small>
-                    </button>
-                  ))}
+                <div className="task-list">
+                  {queue.map((project) => {
+                    const tasks = projectTaskItems(project);
+                    const completedCount = tasks.filter((task) => completedTasks.has(task.id)).length;
+                    const completion = Math.round((completedCount / tasks.length) * 100);
+                    return (
+                      <details key={project.id} className="task-card">
+                        <summary onClick={() => setSelectedId(project.id)}>
+                          <span className="task-summary-copy">
+                            <span>{project.name}</span>
+                            <small>{project.nextMove}</small>
+                          </span>
+                          <span className="progress-ring" style={{ "--completion": `${completion}%` } as CSSProperties}>
+                            {completion}
+                          </span>
+                        </summary>
+                        <div className="subtask-list">
+                          {tasks.map((task) => (
+                            <label key={task.id}>
+                              <input type="checkbox" checked={completedTasks.has(task.id)} onChange={() => toggleTask(task.id)} />
+                              <span>{task.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </details>
+                    );
+                  })}
                 </div>
               </aside>
             )}
@@ -250,4 +278,13 @@ export default function App() {
       <MissionDrawer brief={brief} project={selectedProject} onClose={() => setBrief(null)} />
     </main>
   );
+}
+
+function projectTaskItems(project: ProjectDossier) {
+  return [
+    { id: `${project.id}:inspect`, label: "Inspect current state and confirm the smallest useful move" },
+    { id: `${project.id}:scope`, label: `Keep scope inside ${project.path}` },
+    { id: `${project.id}:advance`, label: project.nextMove },
+    { id: `${project.id}:verify`, label: "Run a concrete verification and capture the result" }
+  ];
 }
