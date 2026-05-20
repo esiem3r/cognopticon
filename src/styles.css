@@ -50,7 +50,7 @@ button:hover {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr);
   background: #05070a;
   overflow: hidden;
 }
@@ -68,9 +68,7 @@ button:hover {
 
 .brand-lockup,
 .search-box,
-.filter-row,
-.lower-rail > div,
-.canvas-hud span {
+.filter-row {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -217,25 +215,163 @@ select {
     0 1px 8px rgba(0, 0, 0, 0.92);
 }
 
-.canvas-hud {
+.queue-overlay {
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  z-index: 3;
+}
+
+.circle-overlay-button {
+  width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(5, 8, 10, 0.72);
+  border-color: rgba(128, 228, 201, 0.28);
+  box-shadow: 0 0 22px rgba(128, 228, 201, 0.1);
+}
+
+.queue-popover,
+.filter-popover {
+  position: absolute;
+  width: min(360px, calc(100vw - 36px));
+  border: 1px solid rgba(183, 210, 218, 0.18);
+  border-radius: 8px;
+  background: rgba(7, 12, 15, 0.94);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(18px);
+}
+
+.queue-popover {
+  top: 50px;
+  left: 0;
+  padding: 12px;
+}
+
+.queue-popover header,
+.filter-popover header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #fbf2c8;
+}
+
+.queue-popover > div {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.queue-popover button:not(.icon-button) {
+  min-height: 58px;
+  display: grid;
+  justify-items: start;
+  align-content: center;
+  text-align: left;
+  overflow: hidden;
+}
+
+.queue-popover span,
+.queue-popover small {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-popover small {
+  color: rgba(230, 240, 238, 0.62);
+}
+
+.filter-overlay {
   position: absolute;
   left: 18px;
   bottom: 18px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: min(640px, calc(100% - 36px));
-  pointer-events: none;
+  z-index: 3;
 }
 
-.canvas-hud span {
+.filter-trigger {
+  min-height: 38px;
+  background: rgba(5, 8, 10, 0.76);
+  border-color: rgba(128, 228, 201, 0.22);
+  color: rgba(236, 248, 244, 0.86);
+}
+
+.filter-trigger strong {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(249, 138, 212, 0.18);
+  color: #fff2bf;
+  font-size: 12px;
+}
+
+.filter-popover {
+  left: 0;
+  bottom: 46px;
+  max-height: min(520px, calc(100vh - 180px));
+  overflow: auto;
+  padding: 12px;
+}
+
+.filter-popover header button {
   min-height: 30px;
   padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(206, 232, 224, 0.14);
-  background: rgba(5, 8, 10, 0.72);
-  color: rgba(230, 240, 238, 0.78);
   font-size: 12px;
+}
+
+.filter-popover details {
+  padding: 10px 0;
+  border-top: 1px solid rgba(183, 210, 218, 0.12);
+}
+
+.filter-popover header + details {
+  margin-top: 8px;
+}
+
+.filter-popover summary {
+  cursor: pointer;
+  color: rgba(235, 242, 239, 0.8);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.checkbox-grid,
+.project-checkbox-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.checkbox-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.project-checkbox-list {
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.checkbox-grid label,
+.project-checkbox-list label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(230, 240, 238, 0.8);
+  font-size: 12px;
+}
+
+.checkbox-grid input,
+.project-checkbox-list input {
+  accent-color: #80e4c9;
 }
 
 .dossier-panel {
@@ -381,75 +517,11 @@ select {
 }
 
 .dossier-actions button,
-.lower-rail button,
 .mission-drawer footer button,
 .download-button {
   width: 100%;
   background: rgba(255, 209, 102, 0.13);
   border-color: rgba(255, 209, 102, 0.34);
-}
-
-.action-queue {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  min-height: 82px;
-  padding: 10px 18px;
-  border-top: 1px solid rgba(183, 210, 218, 0.14);
-  background: #081014;
-}
-
-.action-queue header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #fbf2c8;
-}
-
-.action-queue > div {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(150px, 1fr));
-  gap: 8px;
-  min-width: 0;
-}
-
-.action-queue button {
-  min-height: 58px;
-  display: grid;
-  justify-items: start;
-  align-content: center;
-  text-align: left;
-  overflow: hidden;
-}
-
-.action-queue span,
-.action-queue small {
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.action-queue small {
-  color: rgba(230, 240, 238, 0.62);
-}
-
-.lower-rail {
-  min-height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 18px;
-  border-top: 1px solid rgba(183, 210, 218, 0.14);
-  background: rgba(6, 10, 13, 0.94);
-  color: rgba(230, 240, 238, 0.78);
-  font-size: 13px;
-}
-
-.lower-rail button {
-  width: auto;
 }
 
 .drawer-backdrop {
@@ -543,19 +615,6 @@ select {
   }
 
   .lower-rail {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .action-queue {
-    grid-template-columns: 1fr;
-  }
-
-  .action-queue > div {
-    grid-template-columns: 1fr;
-  }
-
-  .lower-rail button {
-    width: 100%;
+    display: none;
   }
 }

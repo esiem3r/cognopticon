@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Activity, Crosshair, FileText, GitBranch, ListChecks, Search, Sparkles } from "lucide-react";
+import { Activity, ListChecks, Search, Sparkles, X } from "lucide-react";
 import { DossierPanel } from "./components/DossierPanel";
 import { MissionDrawer } from "./components/MissionDrawer";
 import { UniverseCanvas } from "./components/UniverseCanvas";
@@ -9,6 +9,14 @@ import type { MissionBrief, ProjectDomain, ProjectDossier, ProjectStatus } from 
 
 const allDomains = Array.from(new Set(projectDossiers.map((project) => project.domain))).sort() as ProjectDomain[];
 const allStatuses = Array.from(new Set(projectDossiers.map((project) => project.status))).sort() as ProjectStatus[];
+const projectTypeFilters = [
+  { id: "ai", label: "AI", matches: (project: ProjectDossier) => project.domain === "agentics" || project.tags.some((tag) => tag.includes("agent") || tag === "models") },
+  { id: "math", label: "Math", matches: (project: ProjectDossier) => project.tags.includes("math") || project.tags.includes("proof") || project.tags.includes("calculus") },
+  { id: "tools", label: "Tools", matches: (project: ProjectDossier) => ["operations", "infrastructure", "visualization"].includes(project.domain) || project.tags.some((tag) => tag.includes("tool") || tag.includes("operator") || tag.includes("control")) },
+  { id: "corpus", label: "Corpus", matches: (project: ProjectDossier) => project.domain === "corpus" || project.domain === "memory" || project.tags.some((tag) => tag.includes("archive") || tag.includes("retrieval")) },
+  { id: "research", label: "Research", matches: (project: ProjectDossier) => project.domain === "research" || project.tags.includes("research") },
+  { id: "writing", label: "Writing", matches: (project: ProjectDossier) => project.domain === "writing" || project.tags.includes("markdown") }
+] as const;
 
 export default function App() {
   const [selectedId, setSelectedId] = useState("cosmopticon");
@@ -17,6 +25,11 @@ export default function App() {
   const [domain, setDomain] = useState<ProjectDomain | "all">("all");
   const [status, setStatus] = useState<ProjectStatus | "all">("all");
   const [focusMode, setFocusMode] = useState<FocusMode>("all");
+  const [selectedDomains, setSelectedDomains] = useState<Set<ProjectDomain>>(new Set());
+  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
+  const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
   const [brief, setBrief] = useState<MissionBrief | null>(null);
 
   const selectedProject = projectDossiers.find((project) => project.id === selectedId) ?? projectDossiers[0];
@@ -27,9 +40,12 @@ export default function App() {
       const statusOk = status === "all" || project.status === status;
       const focusOk = focusModeMatches(project, focusMode);
       const queryOk = query.trim() === "" || projectMatches(project, query);
-      return domainOk && statusOk && focusOk && queryOk;
+      const domainClusterOk = selectedDomains.size === 0 || selectedDomains.has(project.domain);
+      const typeOk = selectedTypes.size === 0 || projectTypeFilters.some((item) => selectedTypes.has(item.id) && item.matches(project));
+      const projectOk = selectedProjects.size === 0 || selectedProjects.has(project.id);
+      return domainOk && statusOk && focusOk && queryOk && domainClusterOk && typeOk && projectOk;
     });
-  }, [domain, focusMode, query, status]);
+  }, [domain, focusMode, query, selectedDomains, selectedProjects, selectedTypes, status]);
 
   const filteredIds = useMemo(() => new Set(filteredProjects.map((project) => project.id)), [filteredProjects]);
 
@@ -43,7 +59,21 @@ export default function App() {
     setBrief(generateMissionBrief(project, projectDossiers, projectRelationships));
   }
 
+  function toggleSetValue<T>(set: Set<T>, value: T) {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    return next;
+  }
+
+  function resetOverlayFilters() {
+    setSelectedDomains(new Set());
+    setSelectedTypes(new Set());
+    setSelectedProjects(new Set());
+  }
+
   const queue = useMemo(() => nextActionQueue(filteredProjects).slice(0, 5), [filteredProjects]);
+  const activeOverlayFilterCount = selectedDomains.size + selectedTypes.size + selectedProjects.size;
 
   return (
     <main className="app-shell">
@@ -113,12 +143,99 @@ export default function App() {
             onSelect={setSelectedId}
             onHover={setHoveredId}
           />
-          <div className="canvas-hud" aria-label="Navigation hints">
-            <span><Crosshair size={14} aria-hidden /> drag to orbit</span>
-            <span>shift-drag to move</span>
-            <span>two-finger glide to orbit / enter</span>
-            <span>pinch to zoom</span>
-            <span>click a body to enter</span>
+
+          <div className="queue-overlay">
+            <button
+              type="button"
+              className="circle-overlay-button"
+              aria-label="Toggle next action queue"
+              aria-expanded={queueOpen}
+              onClick={() => setQueueOpen((value) => !value)}
+            >
+              <ListChecks size={18} aria-hidden />
+            </button>
+            {queueOpen && (
+              <aside className="queue-popover" aria-label="Next action queue">
+                <header>
+                  <strong>Next Action Queue</strong>
+                  <button type="button" className="icon-button" aria-label="Close next action queue" onClick={() => setQueueOpen(false)}>
+                    <X size={16} aria-hidden />
+                  </button>
+                </header>
+                <div>
+                  {queue.map((project) => (
+                    <button key={project.id} type="button" onClick={() => setSelectedId(project.id)}>
+                      <span>{project.name}</span>
+                      <small>{project.nextMove}</small>
+                    </button>
+                  ))}
+                </div>
+              </aside>
+            )}
+          </div>
+
+          <div className="filter-overlay">
+            <button type="button" className="filter-trigger" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>
+              <Activity size={16} aria-hidden />
+              <span>{filteredProjects.length} visible</span>
+              {activeOverlayFilterCount > 0 && <strong>{activeOverlayFilterCount}</strong>}
+            </button>
+            {filtersOpen && (
+              <div className="filter-popover" aria-label="Project visibility filters">
+                <header>
+                  <strong>Visibility</strong>
+                  <button type="button" onClick={resetOverlayFilters}>Reset</button>
+                </header>
+
+                <details open>
+                  <summary>Type</summary>
+                  <div className="checkbox-grid">
+                    {projectTypeFilters.map((item) => (
+                      <label key={item.id}>
+                        <input
+                          type="checkbox"
+                          checked={selectedTypes.has(item.id)}
+                          onChange={() => setSelectedTypes((value) => toggleSetValue(value, item.id))}
+                        />
+                        <span>{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
+
+                <details>
+                  <summary>Domain</summary>
+                  <div className="checkbox-grid">
+                    {allDomains.map((item) => (
+                      <label key={item}>
+                        <input
+                          type="checkbox"
+                          checked={selectedDomains.has(item)}
+                          onChange={() => setSelectedDomains((value) => toggleSetValue(value, item))}
+                        />
+                        <span>{domainLabels[item]}</span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
+
+                <details>
+                  <summary>Project</summary>
+                  <div className="project-checkbox-list">
+                    {projectDossiers.map((project) => (
+                      <label key={project.id}>
+                        <input
+                          type="checkbox"
+                          checked={selectedProjects.has(project.id)}
+                          onChange={() => setSelectedProjects((value) => toggleSetValue(value, project.id))}
+                        />
+                        <span>{project.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            )}
           </div>
         </div>
 
@@ -128,36 +245,6 @@ export default function App() {
           relationships={projectRelationships}
           onCreateBrief={createBrief}
         />
-      </section>
-
-      <aside className="action-queue" aria-label="Next action queue">
-        <header>
-          <ListChecks size={16} aria-hidden />
-          <strong>Next Action Queue</strong>
-        </header>
-        <div>
-          {queue.map((project) => (
-            <button key={project.id} type="button" onClick={() => setSelectedId(project.id)}>
-              <span>{project.name}</span>
-              <small>{project.nextMove}</small>
-            </button>
-          ))}
-        </div>
-      </aside>
-
-      <section className="lower-rail" aria-label="Workspace summary">
-        <div>
-          <Activity size={16} aria-hidden />
-          <span>{filteredProjects.length} visible</span>
-        </div>
-        <div>
-          <GitBranch size={16} aria-hidden />
-          <span>{projectRelationships.filter((item) => item.source === selectedProject.id || item.target === selectedProject.id).length} linked to selection</span>
-        </div>
-        <button type="button" onClick={() => createBrief(selectedProject)}>
-          <FileText size={16} aria-hidden />
-          Mission brief
-        </button>
       </section>
 
       <MissionDrawer brief={brief} project={selectedProject} onClose={() => setBrief(null)} />

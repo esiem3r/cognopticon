@@ -19,7 +19,7 @@ test("renders the project universe and opens a mission brief", async ({ page }) 
   expect(webglProof.height).toBeGreaterThan(300);
   expect(webglProof.dataLength).toBeGreaterThan(5000);
 
-  await page.getByRole("button", { name: "Mission brief", exact: true }).click();
+  await page.getByRole("button", { name: "Generate Mission Brief", exact: true }).click();
   await expect(page.getByLabel("Generated mission brief")).toContainText("# Mission Brief: Cosmopticon");
   await expect(page.getByRole("link", { name: "Download Brief" })).toHaveAttribute("download", /cosmopticon-.*-mission\.md/);
 });
@@ -34,9 +34,21 @@ test("search focuses a local project dossier", async ({ page }) => {
 test("focus modes and next action queue expose durable workflow", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Focus mode").selectOption("research");
-  await expect(page.getByLabel("Next action queue")).toContainText("Kern Dogs");
+  await page.getByRole("button", { name: "Toggle next action queue" }).click();
+  await expect(page.getByRole("complementary", { name: "Next action queue" })).toContainText("Kern Dogs");
   await page.getByRole("button", { name: /Kern Dogs/ }).first().click();
   await expect(page.getByLabel("Kern Dogs dossier")).toContainText("Decision");
+});
+
+test("visibility menu filters by type and project", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /visible/ }).click();
+  await expect(page.getByLabel("Project visibility filters")).toBeVisible();
+  await page.getByLabel("Math").check();
+  await expect(page.getByRole("button", { name: /4 visible/ })).toBeVisible();
+  await page.getByLabel("Project visibility filters").getByText("Project", { exact: true }).click();
+  await page.getByLabel("Kern Dogs").check();
+  await expect(page.getByRole("button", { name: /1 visible/ })).toBeVisible();
 });
 
 test("canvas supports direct drag and wheel navigation", async ({ page }) => {
