@@ -3,6 +3,11 @@ import type { DaemonStatus } from "../agency/types";
 import type { CognopticonNode } from "../model/cognopticonNode";
 import { formatManualLaunchCommand } from "./launchCommand";
 
+type CopyStatus = {
+  message: string;
+  nonce: number;
+};
+
 export function LaunchPort({
   node,
   daemonStatus,
@@ -18,12 +23,12 @@ export function LaunchPort({
 }) {
   const command = node.launch?.commands?.[0];
   const manualCommandText = command ? formatManualLaunchCommand(command) : "";
-  const [copyStatus, setCopyStatus] = useState("");
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>({ message: "", nonce: 0 });
   useEffect(() => {
-    setCopyStatus("");
+    resetCopyStatus();
   }, [node.id, manualCommandText]);
   useEffect(() => {
-    if (runStatus) setCopyStatus("");
+    if (runStatus) resetCopyStatus();
   }, [runStatus]);
 
   if (!node.launch) {
@@ -41,13 +46,19 @@ export function LaunchPort({
     try {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
       await navigator.clipboard.writeText(manualCommandText);
-      setCopyStatus(`Command copied: ${manualCommandText}`);
+      updateCopyStatus(`Command copied: ${manualCommandText}`);
     } catch {
-      setCopyStatus("Clipboard unavailable. Command remains visible above.");
+      updateCopyStatus("Clipboard unavailable. Command remains visible above.");
     }
   }
+  function resetCopyStatus() {
+    setCopyStatus({ message: "", nonce: 0 });
+  }
+  function updateCopyStatus(message: string) {
+    setCopyStatus((current) => ({ message, nonce: current.nonce + 1 }));
+  }
   function runLaunchCommand() {
-    setCopyStatus("");
+    resetCopyStatus();
     onRun();
   }
   return (
@@ -67,7 +78,10 @@ export function LaunchPort({
         {command && <button type="button" onClick={() => void copyCommand()}>Copy Command</button>}
         <button type="button" onClick={onMission}>Mission</button>
       </div>
-      <small className="launch-status" role="status" aria-atomic="true">{copyStatus || runStatus || (command ? "Command copy ready." : "Mission fallback ready.")}</small>
+      <small className="launch-status" role="status" aria-atomic="true">
+        {copyStatus.message || runStatus || (command ? "Command copy ready." : "Mission fallback ready.")}
+        {copyStatus.nonce > 0 && <span className="sr-only"> Attempt {copyStatus.nonce}.</span>}
+      </small>
     </section>
   );
 }

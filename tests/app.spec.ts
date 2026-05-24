@@ -91,9 +91,16 @@ test("launch port copies the offline command fallback without daemon dispatch", 
   const expectedCommand = "cd /demo/workspace/tools/launchable-tool && npm test";
 
   await expect(launchPort.getByRole("button", { name: "Run" })).toBeDisabled();
+  const copyCommand = launchPort.getByRole("button", { name: "Copy Command" });
   const daemonCallsBefore = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
-  await launchPort.getByRole("button", { name: "Copy Command" }).click();
+  await copyCommand.click();
+  await expect(copyCommand).toHaveText("Copy Command");
   await expect(launchPort.getByRole("status")).toContainText(`Command copied: ${expectedCommand}`);
+  const firstStatusText = await launchPort.getByRole("status").textContent();
+  await copyCommand.click();
+  await expect(launchPort.getByRole("status")).toContainText("Attempt 2.");
+  const secondStatusText = await launchPort.getByRole("status").textContent();
+  expect(secondStatusText).not.toBe(firstStatusText);
   await expect(page.getByLabel("Runtime event feed")).not.toContainText(/Dispatching|Daemon job/i);
   const daemonCallsAfter = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
   expect(daemonCallsAfter).toBe(daemonCallsBefore);
@@ -104,6 +111,14 @@ test("launch port copies the offline command fallback without daemon dispatch", 
 
 test("launch port reports clipboard failure without hiding the command", async ({ page }) => {
   await page.addInitScript(() => {
+    const testWindow = window as typeof window & { __daemonMutationCalls?: string[] };
+    testWindow.__daemonMutationCalls = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (/\/api\/(?:jobs|actions|orchestrator)/.test(url)) testWindow.__daemonMutationCalls?.push(url);
+      return originalFetch(input, init);
+    };
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
@@ -115,10 +130,20 @@ test("launch port reports clipboard failure without hiding the command", async (
   await page.goto("/?daemon=off");
   await page.getByLabel("Search projects").fill("launchable");
   const launchPort = page.getByLabel("Launchable Tool launch port");
+  const copyCommand = launchPort.getByRole("button", { name: "Copy Command" });
 
-  await launchPort.getByRole("button", { name: "Copy Command" }).click();
+  const daemonCallsBefore = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+  await copyCommand.click();
+  await expect(copyCommand).toHaveText("Copy Command");
   await expect(launchPort).toContainText("cd /demo/workspace/tools/launchable-tool && npm test");
   await expect(launchPort.getByRole("status")).toContainText("Clipboard unavailable. Command remains visible above.");
+  const firstStatusText = await launchPort.getByRole("status").textContent();
+  await copyCommand.click();
+  await expect(launchPort.getByRole("status")).toContainText("Attempt 2.");
+  const secondStatusText = await launchPort.getByRole("status").textContent();
+  expect(secondStatusText).not.toBe(firstStatusText);
+  const daemonCallsAfter = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+  expect(daemonCallsAfter).toBe(daemonCallsBefore);
 });
 
 test("launch port run status replaces previous copy feedback", async ({ page }) => {
