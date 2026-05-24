@@ -157,6 +157,7 @@ npm run validate:payload
 npm run validate:local
 npm run audit:deps
 npm run lint
+npm run audit:ux
 npm test
 npm run build
 npm run test:e2e
@@ -194,6 +195,7 @@ npm run audit:deps
 npm run lint
 npm test
 npm run build
+npm run audit:ux
 npm run test:e2e
 ```
 

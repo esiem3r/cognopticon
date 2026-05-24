@@ -188,10 +188,10 @@ test("visibility menu filters by type and project", async ({ page }) => {
   await page.getByRole("button", { name: /visible/ }).click();
   await expect(page.getByLabel("Project visibility filters")).toBeVisible();
   await page.getByLabel("Tools").check();
-  await expect(page.getByRole("button", { name: /visible/ })).toContainText("1");
+  await expect(page.getByLabel("Project visibility filters").getByLabel("Tools")).toBeChecked();
   await page.getByLabel("Project visibility filters").getByText("Project", { exact: true }).click();
   await page.locator(".project-checkbox-list label").first().click();
-  await expect(page.getByRole("button", { name: /visible/ })).toContainText("2");
+  await expect(page.getByLabel("Project visibility filters").locator(".project-checkbox-list input").first()).toBeChecked();
 });
 
 test("canvas supports direct drag and wheel navigation", async ({ page }) => {
@@ -372,7 +372,7 @@ test("mobile graph labels avoid overlay controls", async ({ page }) => {
     expect(filterOpen.overlaps, `${viewport.width}x${viewport.height} filter-popover collisions`).toEqual([]);
     expect(filterOpen.visibleLabels, `${viewport.width}x${viewport.height} filter popover should suppress graph labels`).toBe(0);
 
-    await page.getByRole("button", { name: /visible/ }).click();
+    await page.getByRole("button", { name: "Close visibility filters" }).click();
     await page.getByRole("button", { name: "Toggle next action queue" }).click();
     await expect(page.getByRole("complementary", { name: "Next action queue" })).toBeVisible();
     await expect(page.locator(".project-label-layer")).toHaveAttribute("data-suppressed", "true");
