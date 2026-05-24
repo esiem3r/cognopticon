@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Copy, X } from "lucide-react";
-import type { MissionBrief, ProjectDossier } from "../types/cognopticon";
-import { parseMissionPacketMarkdown } from "../lib/missionPacket";
-import { missionDrawerDeliveryState } from "./missionDrawerState";
 import { prepareManualAgentHandoffPrompt } from "../agency/agentAdapters";
+import { useAnnouncementStatus } from "../hooks/useAnnouncementStatus";
+import { parseMissionPacketMarkdown } from "../lib/missionPacket";
+import type { MissionBrief, ProjectDossier } from "../types/cognopticon";
+import { missionDrawerDeliveryState } from "./missionDrawerState";
 
 interface MissionDrawerProps {
   brief: MissionBrief | null;
@@ -16,15 +17,10 @@ interface MissionDrawerProps {
 
 type CopyTarget = "brief" | "worker";
 
-interface CopyState {
-  target: CopyTarget;
-  message: string;
-  nonce: number;
-}
-
 export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispatchSummary, onMarkReviewed, onClose }: MissionDrawerProps) {
   const [downloadUrl, setDownloadUrl] = useState<string | undefined>();
-  const [copyState, setCopyState] = useState<CopyState | null>(null);
+  const [copyTarget, setCopyTarget] = useState<CopyTarget | null>(null);
+  const { status: copyStatus, announce: announceCopyStatus, reset: resetCopyStatus } = useAnnouncementStatus();
   const packetResult = useMemo(() => brief ? parseMissionPacketMarkdown(brief.markdown) : undefined, [brief]);
   const workerPrompt = useMemo(() => {
     if (!brief || !packetResult?.ok) return undefined;
@@ -46,8 +42,9 @@ export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispat
   }, [delivery.markdownForDelivery]);
 
   useEffect(() => {
-    setCopyState(null);
-  }, [brief?.markdown]);
+    setCopyTarget(null);
+    resetCopyStatus();
+  }, [brief?.markdown, resetCopyStatus]);
 
   if (!brief) return null;
   const filename = `${project.id}-${brief.generatedAt.slice(0, 10)}-mission.md`;
@@ -57,13 +54,14 @@ export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispat
     try {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
       await navigator.clipboard.writeText(text);
-      updateCopyState(target, target === "worker" ? "Worker prompt copied." : "Mission brief copied.");
+      updateCopyStatus(target, target === "worker" ? "Worker prompt copied." : "Mission brief copied.");
     } catch {
-      updateCopyState(target, target === "worker" ? "Clipboard write failed. Worker prompt was not copied." : "Clipboard write failed. Download remains available.");
+      updateCopyStatus(target, target === "worker" ? "Clipboard write failed. Worker prompt was not copied." : "Clipboard write failed. Download remains available.");
     }
   }
-  function updateCopyState(target: CopyTarget, message: string) {
-    setCopyState((current) => ({ target, message, nonce: (current?.nonce ?? 0) + 1 }));
+  function updateCopyStatus(target: CopyTarget, message: string) {
+    setCopyTarget(target);
+    announceCopyStatus(message);
   }
 
   return (
@@ -85,8 +83,8 @@ export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispat
           {workerPrompt && <p>Manual handoff ready. No agent or daemon dispatch will run from this drawer.</p>}
         </section>
         <output className="mission-copy-feedback" role="status" aria-atomic="true">
-          {copyState?.message ?? ""}
-          {copyState && <span className="sr-only"> Attempt {copyState.nonce}.</span>}
+          {copyStatus.message}
+          {copyStatus.nonce > 0 && <span className="sr-only"> Attempt {copyStatus.nonce}.</span>}
         </output>
         <footer>
           <a
@@ -102,7 +100,7 @@ export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispat
             type="button"
             disabled={!delivery.packetReady}
             onClick={() => void copyPayload("brief", delivery.markdownForDelivery)}
-            data-copy-state={copyState?.target === "brief" ? "active" : "idle"}
+            data-copy-state={copyTarget === "brief" ? "active" : "idle"}
           >
             <Copy size={16} aria-hidden />
             Copy Brief
@@ -111,7 +109,7 @@ export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispat
             type="button"
             disabled={!workerPrompt}
             onClick={() => void copyPayload("worker", workerPrompt)}
-            data-copy-state={copyState?.target === "worker" ? "active" : "idle"}
+            data-copy-state={copyTarget === "worker" ? "active" : "idle"}
           >
             <Copy size={16} aria-hidden />
             Copy Worker Prompt

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useAnnouncementStatus } from "../hooks/useAnnouncementStatus";
 import type { CognopticonNode, NodeAction } from "../model/cognopticonNode";
 
 interface ActionWheelProps {
@@ -7,14 +8,14 @@ interface ActionWheelProps {
 }
 
 export function ActionWheel({ node, onMission }: ActionWheelProps) {
-  const [copyStatus, setCopyStatus] = useState<{ message: string; nonce: number }>({ message: "", nonce: 0 });
+  const { status: copyStatus, announce: announceCopyStatus, reset: resetCopyStatus } = useAnnouncementStatus();
   useEffect(() => {
-    setCopyStatus({ message: "", nonce: 0 });
-  }, [node.id]);
+    resetCopyStatus();
+  }, [node.id, resetCopyStatus]);
 
   async function runAction(action: NodeAction) {
     if (action.kind === "generate_mission") {
-      setCopyStatus({ message: "", nonce: 0 });
+      resetCopyStatus();
       onMission();
       return;
     }
@@ -23,14 +24,11 @@ export function ActionWheel({ node, onMission }: ActionWheelProps) {
       try {
         if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
         await navigator.clipboard?.writeText(path);
-        updateCopyStatus("Path copied.");
+        announceCopyStatus("Path copied.");
       } catch {
-        updateCopyStatus("Clipboard unavailable. Open Detail to inspect the path.");
+        announceCopyStatus("Clipboard unavailable. Open Detail to inspect the path.");
       }
     }
-  }
-  function updateCopyStatus(message: string) {
-    setCopyStatus((current) => ({ message, nonce: current.nonce + 1 }));
   }
   const actions = node.actions.filter((action) => action.kind === "generate_mission" || action.kind === "open_path").slice(0, 3);
   return (

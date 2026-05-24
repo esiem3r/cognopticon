@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MissionDrawer } from "../../src/components/MissionDrawer";
 import { renderMissionPacketMarkdown } from "../../src/lib/missionPacket";
@@ -31,11 +31,21 @@ const project: ProjectDossier = {
 
 function Harness() {
   const [reviewed, setReviewed] = useState(false);
+  const [alternateBrief, setAlternateBrief] = useState(false);
   const mode = new URLSearchParams(window.location.search).get("mode");
+  useEffect(() => {
+    if (mode !== "switch") return;
+    const testWindow = window as typeof window & { __swapMissionBrief?: () => void };
+    testWindow.__swapMissionBrief = () => setAlternateBrief((current) => !current);
+    return () => {
+      delete testWindow.__swapMissionBrief;
+    };
+  }, [mode]);
+
   const brief: MissionBrief = {
     projectId: project.id,
     generatedAt,
-    markdown: mode === "invalid" ? "# Mission Brief: Drawer Harness\n\nNo structured packet." : validMarkdown()
+    markdown: mode === "invalid" ? "# Mission Brief: Drawer Harness\n\nNo structured packet." : validMarkdown(alternateBrief)
   };
 
   return (
@@ -50,13 +60,13 @@ function Harness() {
   );
 }
 
-function validMarkdown() {
+function validMarkdown(alternateBrief = false) {
   return renderMissionPacketMarkdown({
-    id: `mission:${project.id}:${generatedAt}`,
+    id: `mission:${project.id}:${alternateBrief ? "alternate" : generatedAt}`,
     source: "project",
     projectIds: [project.id],
-    title: `Mission Brief: ${project.name}`,
-    objective: project.nextMove,
+    title: alternateBrief ? `Mission Brief: ${project.name} Follow-up` : `Mission Brief: ${project.name}`,
+    objective: alternateBrief ? "Render the alternate mission drawer." : project.nextMove,
     generatedAt,
     contextSummary: project.purpose,
     currentState: `${project.decision}: ${project.decisionRationale}`,
