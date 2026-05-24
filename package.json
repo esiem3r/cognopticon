@@ -26,6 +26,7 @@
     "validate:package": "node scripts/validate-package-artifact.mjs",
     "validate:payload": "node scripts/validate-release-payload.mjs",
     "validate:local": "node scripts/validate-local-pipeline.mjs",
+    "validate:daemon": "node scripts/validate-local-daemon.mjs",
     "scan": "node scripts/scan-workspace.mjs --profile-output",
     "analyze": "node scripts/analyze-workspace.mjs",
     "enrich:packets": "node scripts/enrichment-packets.mjs",

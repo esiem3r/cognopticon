@@ -39,6 +39,8 @@ Set `COGNOPTICON_PROFILE=<profile>` to scan, analyze, enrich, or run a different
 
 During development, prefer `npm run local` for daemon-backed flows. If a Vite dev server must call the daemon, add that origin through local config and open the app with `#daemonToken=<token from .cognopticon/config.json>`. The fragment is stripped from the visible URL and the browser keeps the token in `sessionStorage` for the current tab. Daemon API calls send the token in the `X-Cognopticon-Token` header; query-string tokens are rejected.
 
+`npm run validate:daemon` is the release smoke test for local runtime mode. It requires a built `dist/`, starts the real daemon on an ephemeral loopback port with a temporary profile under the OS temp directory, verifies built assets, dev-origin token enforcement, profile listing, profile workspace loading, browser app startup from the daemon origin, a UI-triggered allowlisted `npm test`, a direct local `node` job with `shell: false`, URL-encoded job polling, and a persisted event log containing successful jobs plus a redacted outside-root policy rejection.
+
 Capabilities:
 
 - health check

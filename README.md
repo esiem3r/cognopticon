@@ -155,6 +155,7 @@ npm run validate:github -- --repo esiem3r/cognopticon
 npm run validate:package
 npm run validate:payload
 npm run validate:local
+npm run validate:daemon
 npm run audit:deps
 npm run lint
 npm run audit:ux
@@ -195,6 +196,7 @@ npm run audit:deps
 npm run lint
 npm test
 npm run build
+npm run validate:daemon
 npm run audit:ux
 npm run test:e2e
 ```
