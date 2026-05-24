@@ -1326,7 +1326,7 @@ select {
 
 .mission-drawer footer {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border-top: 1px solid rgba(101, 255, 177, 0.22);
   border-bottom: 0;
 }
@@ -1351,6 +1351,19 @@ select {
   font-weight: 500;
 }
 
+.mission-approval p,
+.mission-copy-feedback {
+  margin: 0;
+  color: rgba(218, 255, 241, 0.68);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.mission-copy-feedback {
+  min-height: 18px;
+  padding: 0 16px 10px;
+}
+
 .dispatch-button {
   border-color: rgba(101, 255, 177, 0.54) !important;
   color: var(--hud-hot) !important;
@@ -1370,6 +1383,11 @@ select {
   pointer-events: none;
 }
 
+.mission-drawer footer button[data-copy-state="active"] {
+  border-color: rgba(101, 255, 177, 0.72);
+  color: var(--hud-hot);
+}
+
 .mission-drawer textarea {
   resize: none;
   width: 100%;
@@ -1383,6 +1401,12 @@ select {
   line-height: 1.45;
   font-family: inherit;
   font-size: 13px;
+}
+
+@media (max-width: 760px) {
+  .mission-drawer footer {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 1180px) {

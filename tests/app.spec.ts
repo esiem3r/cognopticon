@@ -93,7 +93,37 @@ test("malformed mission packet blocks official drawer delivery controls", async 
   expect(await download.getAttribute("href")).toBeNull();
 
   await expect(page.getByRole("button", { name: "Copy Brief" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Copy Worker Prompt" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Mark Reviewed" })).toBeDisabled();
+});
+
+test("mission drawer copies a bounded worker prompt without dispatching", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          window.localStorage.setItem("cognopticon:test:clipboard", text);
+          return Promise.resolve();
+        }
+      }
+    });
+  });
+
+  await page.goto("/tests/fixtures/mission-drawer-harness.html");
+  await expect(page.getByLabel("Mission approval state")).toContainText("Manual handoff ready");
+  await page.getByRole("button", { name: "Copy Worker Prompt" }).click();
+  await expect(page.locator(".mission-copy-feedback")).toContainText("Worker prompt copied.");
+  await page.getByRole("button", { name: "Mark Reviewed" }).click();
+  await expect(page.getByLabel("Mission approval state")).toContainText("Mission reviewed.");
+  const copied = await page.evaluate(() => window.localStorage.getItem("cognopticon:test:clipboard") ?? "");
+
+  expect(copied).toContain("You are the worker Codex instance for Mission Brief: Drawer Harness.");
+  expect(copied).toContain("No edit authority granted by this packet.");
+  expect(copied).toContain("Do not start new daemon, agent, git, network, or destructive operations");
+  expect(copied).toContain("Validated handoff packet:");
+  expect(copied).not.toContain("daemonToken");
+  await expect(page.getByLabel("Runtime event feed")).toHaveCount(0);
 });
 
 test("runtime rail explains daemon failures with action provenance", async ({ page }) => {
