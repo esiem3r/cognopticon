@@ -58,6 +58,23 @@ export function validateCognopticonData(projects: ProjectDossier[], relationship
   return errors;
 }
 
+export function validatePublicDemoWorkspace(projects: ProjectDossier[], roots: string[]) {
+  const errors: string[] = [];
+  const text = JSON.stringify({ roots, projects });
+  const privatePathPatterns = [
+    /\/home\/[^/"']+/i,
+    /\/mnt\/c\/Users\/[^/"']+/i,
+    /C:\\Users\\[^\\/"']+/i,
+    /\/Users\/[^/"']+/i
+  ];
+  for (const pattern of privatePathPatterns) {
+    if (pattern.test(text)) errors.push(`demo workspace contains private local path pattern: ${pattern}`);
+  }
+  if (!roots.every((root) => root.startsWith("/demo/"))) errors.push("demo workspace roots must use /demo paths only");
+  if (!projects.every((project) => project.path.startsWith("/demo/"))) errors.push("demo project paths must use /demo paths only");
+  return errors;
+}
+
 function requireText(value: unknown, label: string, errors: string[]) {
   if (typeof value !== "string" || value.trim() === "") errors.push(`${label} must be a non-empty string`);
 }

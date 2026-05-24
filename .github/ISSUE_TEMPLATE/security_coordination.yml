@@ -1,0 +1,27 @@
+name: Security coordination
+description: Coordinate a security report without posting vulnerability details publicly.
+title: "[Security coordination]: "
+labels:
+  - security
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `SECURITY.md` before using this form. Do not include vulnerability details, exploit steps, daemon tokens, `.cognopticon/` state, private paths, generated local workspace data, screenshots, or logs with secrets.
+
+        Use GitHub private vulnerability reporting when it is enabled. If it is not enabled, open only a minimal public issue here so maintainers can arrange a private channel.
+  - type: checkboxes
+    id: disclosure
+    attributes:
+      label: Disclosure safety
+      options:
+        - label: I understand this is a public issue and I am not including vulnerability details or private data.
+          required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Minimal public summary
+      description: Say only that you have a security report and what private channel you can use.
+      placeholder: I have a security report and can share details through GitHub private vulnerability reporting or another private maintainer-approved channel.
+    validations:
+      required: true

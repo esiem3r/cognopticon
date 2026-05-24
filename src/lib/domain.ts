@@ -55,7 +55,7 @@ export const decisionLabels: Record<ProjectDecision, string> = {
 };
 
 export const focusModes = [
-  { id: "all", label: "All Projects" },
+  { id: "all", label: "All" },
   { id: "active", label: "Active" },
   { id: "triage", label: "Needs Triage" },
   { id: "agentics", label: "Agent Harnesses" },

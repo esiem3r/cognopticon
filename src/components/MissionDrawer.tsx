@@ -4,10 +4,13 @@ import type { MissionBrief, ProjectDossier } from "../types/cognopticon";
 interface MissionDrawerProps {
   brief: MissionBrief | null;
   project: ProjectDossier;
+  dispatchStatus?: string;
+  dispatchSummary?: string;
+  onMarkReviewed: () => void;
   onClose: () => void;
 }
 
-export function MissionDrawer({ brief, project, onClose }: MissionDrawerProps) {
+export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispatchSummary, onMarkReviewed, onClose }: MissionDrawerProps) {
   if (!brief) return null;
   const filename = `${project.id}-${brief.generatedAt.slice(0, 10)}-mission.md`;
 
@@ -24,6 +27,10 @@ export function MissionDrawer({ brief, project, onClose }: MissionDrawerProps) {
           </button>
         </header>
         <textarea value={brief.markdown} readOnly aria-label="Generated mission brief" />
+        <section className="mission-approval" aria-label="Mission approval state">
+          <span>{dispatchStatus}</span>
+          <strong>{dispatchSummary ?? "Review records intent only. Use Run or Run Verification for daemon-backed execution."}</strong>
+        </section>
         <footer>
           <a
             className="download-button"
@@ -40,6 +47,9 @@ export function MissionDrawer({ brief, project, onClose }: MissionDrawerProps) {
           >
             <Copy size={16} aria-hidden />
             Copy Brief
+          </button>
+          <button type="button" className="dispatch-button" onClick={onMarkReviewed}>
+            Mark Reviewed
           </button>
         </footer>
       </aside>

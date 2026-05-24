@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import projectsJson from "../data/projects.json";
 import relationshipsJson from "../data/relationships.json";
-import type { ProjectDossier, ProjectRelationship } from "../types/cognopticon";
-import { validateCognopticonData } from "./validateData";
+import rootsJson from "../data/workspace-roots.json";
+import type { CognopticonWorkspace } from "../types/cognopticon";
+import { validateCognopticonData, validatePublicDemoWorkspace } from "./validateData";
 
-const projects = projectsJson as ProjectDossier[];
-const relationships = relationshipsJson as ProjectRelationship[];
+const demo = {
+  projects: projectsJson,
+  relationships: relationshipsJson,
+  roots: rootsJson
+} as Pick<CognopticonWorkspace, "projects" | "relationships" | "roots">;
+const projects = demo.projects;
+const relationships = demo.relationships;
 
 describe("Cognopticon data validation", () => {
   it("accepts the canonical project universe", () => {
@@ -27,5 +33,20 @@ describe("Cognopticon data validation", () => {
     const errors = validateCognopticonData(invalid, []);
     expect(errors).toContain(`${projects[0].id}.nextMove must be a non-empty string`);
     expect(errors).toContain(`${projects[0].id}.evidence must contain at least one item`);
+  });
+
+  it("rejects private paths in public demo data", () => {
+    const demoProject = { ...projects[0], path: "/home/example/private-project" };
+    const errors = validatePublicDemoWorkspace([demoProject], ["/demo/workspace"]);
+    expect(errors.some((error) => error.includes("private local path"))).toBe(true);
+  });
+
+  it("accepts sanitized demo paths", () => {
+    const demoProject = {
+      ...projects[0],
+      path: "/demo/workspace/private-project",
+      evidence: projects[0].evidence.map((item) => ({ ...item, path: item.path.replace(/^\/home\/[^/]+/, "/demo/workspace") }))
+    };
+    expect(validatePublicDemoWorkspace([demoProject], ["/demo/workspace"])).toEqual([]);
   });
 });

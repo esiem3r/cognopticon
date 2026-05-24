@@ -1,383 +1,547 @@
 [
   {
-    "id": "cognopticon",
-    "name": "Cognopticon",
-    "path": "/home/br34d/cognopticon",
-    "status": "forming",
-    "health": "promising",
-    "domain": "visualization",
+    "id": "workspace-core",
+    "name": "Cognopticon Demo Core",
+    "path": "/demo/workspace",
+    "status": "active",
+    "health": "strong",
+    "domain": "operations",
     "activity": 1,
-    "substance": 0.78,
-    "position": { "x": 0, "y": 0 },
-    "purpose": "A spatial observatory for the whole project universe: what exists, what matters, what is stuck, and what an agent should do next.",
-    "whyItMatters": "It converts diffuse ambition into a navigable, aesthetic, actionable control surface.",
-    "currentFriction": "It needs to become the place where projects are selected, constrained, and finished instead of another fragment.",
-    "nextMove": "Use it as the primary morning workbench and add agent run state only after mission briefs prove useful.",
+    "substance": 1,
+    "position": {
+      "x": 0,
+      "y": 0
+    },
+    "purpose": "The self-node for the public demo workspace.",
+    "whyItMatters": "It proves Cognopticon can reason about its own release readiness.",
+    "currentFriction": "Needs public hygiene, demo narrative, and graph-native architecture checks before release.",
+    "nextMove": "Run the agency kernel and generate the public-release hardening mission.",
     "decision": "build",
-    "decisionRationale": "This is the central interface for reducing drift and turning the rest of the workspace into finishable missions.",
-    "nextReview": "2026-05-20",
+    "decisionRationale": "This node anchors the local cognitive operations console.",
+    "nextReview": "2026-05-21",
     "missionConstraints": [
-      "Preserve the observatory feeling: spatial first, dashboard second.",
-      "Do not expose private paths in any future public demo without an explicit sanitization pass.",
-      "Every feature must reduce drift or increase completion pressure."
+      "Use sanitized demo paths only.",
+      "Do not expose private local files."
     ],
     "evidence": [
-      { "label": "Standalone app root", "path": "/home/br34d/cognopticon", "kind": "repo" }
+      {
+        "label": "README",
+        "path": "/demo/workspace/README.md",
+        "kind": "file"
+      },
+      {
+        "label": "Package",
+        "path": "/demo/workspace/package.json",
+        "kind": "file"
+      },
+      {
+        "label": "Tests",
+        "path": "/demo/workspace/tests/app.spec.ts",
+        "kind": "file"
+      }
     ],
-    "tags": ["spatial", "completion", "agent-briefs", "local-first"]
+    "tags": [
+      "workspace",
+      "self",
+      "public-release",
+      "demo"
+    ],
+    "analysis": {
+      "source": "demo",
+      "confidence": 0.95,
+      "languages": [
+        "typescript"
+      ],
+      "frameworks": [
+        "vite",
+        "three"
+      ],
+      "signals": [
+        "README.md",
+        "package.json",
+        "tests",
+        "vite"
+      ]
+    }
   },
   {
-    "id": "codex-operator",
-    "name": "Codex Operator",
-    "path": "/home/br34d/codex_operator",
+    "id": "launchable-tool",
+    "name": "Launchable Tool",
+    "path": "/demo/workspace/tools/launchable-tool",
     "status": "active",
     "health": "strong",
     "domain": "operations",
     "activity": 0.92,
-    "substance": 0.9,
-    "position": { "x": -240, "y": -90 },
-    "purpose": "A local control plane for Codex work: workspace status, safety policy, sessions, jobs, snapshots, and handoffs.",
-    "whyItMatters": "It is the operational spine that can keep agentic work from becoming amnesiac or reckless.",
-    "currentFriction": "The current UI is utilitarian and does not yet provide a rich visual model of the workspace.",
-    "nextMove": "Expose its registry, sessions, and command safety ideas as future Cognopticon data sources.",
-    "decision": "build",
-    "decisionRationale": "It already contains the strongest operational substrate for safe agent work.",
-    "nextReview": "2026-05-24",
-    "missionConstraints": [
-      "Do not weaken preservation or safety guarantees.",
-      "Treat generated maps and briefs as evidence, not decoration.",
-      "Prefer adapters over one-off scripts."
-    ],
-    "evidence": [
-      { "label": "Project root", "path": "/home/br34d/codex_operator", "kind": "repo" },
-      { "label": "Workspace registry", "path": "/home/br34d/codex_operator/config/workspace_registry.json", "kind": "file" }
-    ],
-    "tags": ["control-plane", "safety", "sessions", "handoff"]
-  },
-  {
-    "id": "codex-cockpit",
-    "name": "Codex Cockpit",
-    "path": "/mnt/c/Users/User/Documents/codex_cockpit/codex_cockpit",
-    "status": "active",
-    "health": "promising",
-    "domain": "corpus",
-    "activity": 0.86,
     "substance": 0.86,
-    "position": { "x": -80, "y": 220 },
-    "purpose": "A local browser/API research surface over exported conversations and derived archive artifacts.",
-    "whyItMatters": "It holds the raw autobiographical and project context that can tell agents what the work has meant over time.",
-    "currentFriction": "It risks becoming a data-heavy archive rather than a decision surface unless paired with a visual project layer.",
-    "nextMove": "Use it as a source for future chat-derived project history and motivation timelines.",
+    "position": {
+      "x": 120,
+      "y": -20
+    },
+    "purpose": "A small local tool with clear run commands and verification.",
+    "whyItMatters": "It demonstrates safe launch affordances without arbitrary shell execution.",
+    "currentFriction": "Needs a release packet and command allowlist entry.",
+    "nextMove": "Generate a launch-readiness mission and verify the allowlisted command.",
     "decision": "build",
-    "decisionRationale": "It is the most useful bridge from exported conversations into project understanding.",
-    "nextReview": "2026-05-26",
+    "decisionRationale": "It is suitable for safe local action bridging.",
+    "nextReview": "2026-05-21",
     "missionConstraints": [
-      "Avoid mutating canonical archive data casually.",
-      "Separate private local intelligence from future public demo data.",
-      "Keep retrieval outputs tied to source evidence."
+      "Run only allowlisted commands.",
+      "Prefer copy-command fallback when daemon is offline."
     ],
     "evidence": [
-      { "label": "Project root", "path": "/mnt/c/Users/User/Documents/codex_cockpit/codex_cockpit", "kind": "repo" }
+      {
+        "label": "README",
+        "path": "/demo/workspace/tools/launchable-tool/README.md",
+        "kind": "file"
+      },
+      {
+        "label": "Package",
+        "path": "/demo/workspace/tools/launchable-tool/package.json",
+        "kind": "file"
+      },
+      {
+        "label": "Tests",
+        "path": "/demo/workspace/tools/launchable-tool/tests/tool.test.ts",
+        "kind": "file"
+      }
     ],
-    "tags": ["chat-archive", "research-os", "retrieval"]
+    "tags": [
+      "tool",
+      "launchable",
+      "verification",
+      "agent-ready"
+    ],
+    "analysis": {
+      "source": "demo",
+      "confidence": 0.9,
+      "languages": [
+        "typescript"
+      ],
+      "frameworks": [
+        "node"
+      ],
+      "signals": [
+        "README.md",
+        "package.json",
+        "tests",
+        "launch"
+      ]
+    }
   },
   {
-    "id": "threadgraph",
-    "name": "Threadgraph",
-    "path": "/home/br34d/threadgraph",
-    "status": "active",
-    "health": "strong",
-    "domain": "memory",
-    "activity": 0.9,
-    "substance": 0.88,
-    "position": { "x": 160, "y": 190 },
-    "purpose": "A graph-native corpus engine for mapping and retrieving conversation structure.",
-    "whyItMatters": "It can become the deeper semantic substrate beneath Cognopticon’s visible project universe.",
-    "currentFriction": "Graph intelligence is powerful but can remain invisible without a calm, inspectable interface.",
-    "nextMove": "Design a narrow adapter that returns project-linked conversations and relationship evidence.",
-    "decision": "build",
-    "decisionRationale": "It can supply the semantic evidence layer beneath the visual map once the UI stabilizes.",
-    "nextReview": "2026-05-27",
+    "id": "proof-forge",
+    "name": "Proof Forge",
+    "path": "/demo/workspace/research/proof-forge",
+    "status": "forming",
+    "health": "promising",
+    "domain": "research",
+    "activity": 0.62,
+    "substance": 0.9,
+    "position": {
+      "x": -140,
+      "y": 80
+    },
+    "purpose": "A research/proof workspace with strong ideas and incomplete verification.",
+    "whyItMatters": "It demonstrates high-concept work that needs bounded verification missions.",
+    "currentFriction": "Research claims are scattered and the verification surface is thin.",
+    "nextMove": "Compile a research verification mission with explicit claims and checks.",
+    "decision": "triage",
+    "decisionRationale": "High value, but agent handoff needs scoped claims and tests.",
+    "nextReview": "2026-05-22",
     "missionConstraints": [
-      "Keep derived views reproducible.",
-      "Do not collapse conversation nuance into overconfident labels.",
-      "Prefer inspectable graph evidence over opaque scores."
+      "Do not rewrite the thesis.",
+      "Extract claims before editing."
     ],
     "evidence": [
-      { "label": "Project root", "path": "/home/br34d/threadgraph", "kind": "repo" }
+      {
+        "label": "Notes",
+        "path": "/demo/workspace/research/proof-forge/notes.md",
+        "kind": "file"
+      },
+      {
+        "label": "README",
+        "path": "/demo/workspace/research/proof-forge/README.md",
+        "kind": "file"
+      }
     ],
-    "tags": ["graph", "corpus", "memory", "retrieval"]
+    "tags": [
+      "research",
+      "proof",
+      "verification-gap",
+      "high-concept"
+    ],
+    "analysis": {
+      "source": "demo",
+      "confidence": 0.82,
+      "languages": [
+        "markdown"
+      ],
+      "signals": [
+        "README.md",
+        "notes",
+        "verification-gap"
+      ]
+    }
   },
   {
-    "id": "dataset-library",
-    "name": "Dataset Library",
-    "path": "/mnt/c/Users/User/Documents/Dataset",
+    "id": "field-notes-book",
+    "name": "Field Notes Book",
+    "path": "/demo/workspace/writing/field-notes-book",
+    "status": "forming",
+    "health": "promising",
+    "domain": "writing",
+    "activity": 0.48,
+    "substance": 0.72,
+    "position": {
+      "x": -40,
+      "y": 160
+    },
+    "purpose": "A writing project that frames the behavioral insight behind unfinished work.",
+    "whyItMatters": "It makes the product legible as more than a task tracker.",
+    "currentFriction": "Good thesis, weak chapter structure and public demo linkage.",
+    "nextMove": "Generate a structure mission tied to the demo story.",
+    "decision": "build",
+    "decisionRationale": "It strengthens the proof-of-work narrative.",
+    "nextReview": "2026-05-23",
+    "missionConstraints": [
+      "Keep prose tied to product evidence.",
+      "Avoid generic productivity claims."
+    ],
+    "evidence": [
+      {
+        "label": "Outline",
+        "path": "/demo/workspace/writing/field-notes-book/outline.md",
+        "kind": "file"
+      },
+      {
+        "label": "Draft",
+        "path": "/demo/workspace/writing/field-notes-book/chapter-01.md",
+        "kind": "file"
+      }
+    ],
+    "tags": [
+      "writing",
+      "behavioral-insights",
+      "narrative"
+    ],
+    "analysis": {
+      "source": "demo",
+      "confidence": 0.78,
+      "languages": [
+        "markdown"
+      ],
+      "signals": [
+        "outline",
+        "draft"
+      ]
+    }
+  },
+  {
+    "id": "chat-corpus",
+    "name": "Chat Corpus",
+    "path": "/demo/workspace/data/chat-corpus",
     "status": "active",
     "health": "fragile",
     "domain": "corpus",
-    "activity": 0.82,
-    "substance": 0.95,
-    "position": { "x": 60, "y": 370 },
-    "purpose": "The canonical local corpus of exported conversations, manifests, and recovered assets.",
-    "whyItMatters": "It is the factual memory bedrock for personal continuity, project history, and future behavioral analysis.",
-    "currentFriction": "The corpus is large, sensitive, and has unresolved asset recovery work that requires careful provenance.",
-    "nextMove": "Keep it read-mostly and surface only project-relevant slices through derived systems.",
+    "activity": 0.55,
+    "substance": 0.88,
+    "position": {
+      "x": 80,
+      "y": 150
+    },
+    "purpose": "A dataset/corpus project with useful memory and indexing material.",
+    "whyItMatters": "It demonstrates how Cognopticon treats data work as operational context.",
+    "currentFriction": "Indexing and privacy boundaries need clarification.",
+    "nextMove": "Create a data hygiene and indexing mission.",
     "decision": "triage",
-    "decisionRationale": "It is canonical and valuable, but direct work here should be careful and provenance-led.",
-    "nextReview": "2026-05-28",
+    "decisionRationale": "High substance but privacy and indexing risks are unresolved.",
+    "nextReview": "2026-05-22",
     "missionConstraints": [
-      "Do not blindly resolve same-name files.",
-      "Respect unresolved asset review workflows.",
-      "Treat manifests as canonical operating evidence."
+      "Do not expose private records.",
+      "Use sanitized samples for demo."
     ],
     "evidence": [
-      { "label": "Dataset root", "path": "/mnt/c/Users/User/Documents/Dataset", "kind": "dataset" },
-      { "label": "Unresolved asset log", "path": "/mnt/c/Users/User/Documents/Dataset/library/manifests/unresolved_asset_log.md", "kind": "file" }
+      {
+        "label": "Manifest",
+        "path": "/demo/workspace/data/chat-corpus/manifest.json",
+        "kind": "dataset"
+      },
+      {
+        "label": "Index notes",
+        "path": "/demo/workspace/data/chat-corpus/index.md",
+        "kind": "file"
+      }
     ],
-    "tags": ["source-of-truth", "archive", "assets"]
-  },
-  {
-    "id": "excalibur",
-    "name": "Excalibur",
-    "path": "/mnt/c/Users/User/Projects/excalibur",
-    "status": "active",
-    "health": "promising",
-    "domain": "agentics",
-    "activity": 0.72,
-    "substance": 0.74,
-    "position": { "x": -370, "y": 80 },
-    "purpose": "A Markdown-first agent harness and continuity layer inspired by Vie McCoy’s original scaffold.",
-    "whyItMatters": "It represents the bridge between personal taste, ritualized agent process, and practical orchestration.",
-    "currentFriction": "Harness ideas can sprawl into ceremony unless grounded in real work packets and acceptance criteria.",
-    "nextMove": "Let Cognopticon generate Excalibur-compatible mission briefs before deeper integration.",
-    "decision": "build",
-    "decisionRationale": "It is the most natural target for turning mission briefs into a reusable agent harness practice.",
-    "nextReview": "2026-05-23",
-    "missionConstraints": [
-      "Respect the original project lineage.",
-      "Keep agent rituals tied to concrete deliverables.",
-      "Avoid adding mythology where operational clarity is needed."
+    "tags": [
+      "dataset",
+      "corpus",
+      "privacy",
+      "memory"
     ],
-    "evidence": [
-      { "label": "Project root", "path": "/mnt/c/Users/User/Projects/excalibur", "kind": "repo" }
-    ],
-    "tags": ["agent-harness", "continuity", "markdown"]
-  },
-  {
-    "id": "memory-server",
-    "name": "Memory Server",
-    "path": "/home/br34d/memory_server",
-    "status": "legacy",
-    "health": "stalled",
-    "domain": "memory",
-    "activity": 0.48,
-    "substance": 0.8,
-    "position": { "x": 330, "y": 70 },
-    "purpose": "A legacy ChatGPT memory/API stack containing the Timeline Vortex prototype.",
-    "whyItMatters": "It proved that spatializing personal archives feels right, even if the implementation needs a cleaner successor.",
-    "currentFriction": "The UI is prototype-shaped and the backend stack should be treated as reference unless deliberately promoted.",
-    "nextMove": "Borrow the experiential lesson, not the code structure.",
-    "decision": "archive",
-    "decisionRationale": "It has proven concepts worth preserving, but the implementation should not be revived by default.",
-    "nextReview": "2026-06-02",
-    "missionConstraints": [
-      "Use as inspiration and evidence.",
-      "Do not revive stale architecture by default.",
-      "Preserve any useful datasets before changing old services."
-    ],
-    "evidence": [
-      { "label": "Timeline UI", "path": "/home/br34d/memory_server/ui/timeline", "kind": "file" },
-      { "label": "Memory API", "path": "/home/br34d/memory_server/api/app.py", "kind": "file" }
-    ],
-    "tags": ["timeline", "prototype", "memory"]
+    "analysis": {
+      "source": "demo",
+      "confidence": 0.76,
+      "signals": [
+        "manifest",
+        "index",
+        "privacy-risk"
+      ]
+    }
   },
   {
     "id": "operator-studio",
     "name": "Operator Studio",
-    "path": "/home/br34d/operator-studio",
-    "status": "forming",
+    "path": "/demo/workspace/apps/operator-studio",
+    "status": "active",
     "health": "unknown",
     "domain": "agentics",
-    "activity": 0.52,
-    "substance": 0.42,
-    "position": { "x": -250, "y": 250 },
-    "purpose": "An experimental operator product and personal cognitive laboratory scaffold.",
-    "whyItMatters": "It captures a product-shaped version of the same desire: systems that make thought and agent work governable.",
-    "currentFriction": "Core data model and product boundaries are still unresolved.",
-    "nextMove": "Mine it for interface concepts after Cognopticon has a stable local v1.",
-    "decision": "pause",
-    "decisionRationale": "Its concerns overlap with Cognopticon and Codex Operator; pause until roles are clearer.",
-    "nextReview": "2026-06-03",
+    "activity": 0.86,
+    "substance": 0.56,
+    "position": {
+      "x": 180,
+      "y": 80
+    },
+    "purpose": "An agent harness that looks promising but lacks hard acceptance criteria.",
+    "whyItMatters": "It demonstrates the agent_trap failure mode.",
+    "currentFriction": "Too much delegation surface and not enough authority policy.",
+    "nextMove": "Generate a bounded agent-harness stabilization mission.",
+    "decision": "triage",
+    "decisionRationale": "Agent-facing work needs authority constraints before acceleration.",
+    "nextReview": "2026-05-21",
     "missionConstraints": [
-      "Do not split focus between overlapping operator products.",
-      "Promote only concrete ideas with working code or clear specs.",
-      "Avoid duplicating Cognopticon’s project-map role."
+      "No autonomous edits outside allowed roots.",
+      "Require acceptance criteria before delegation."
     ],
     "evidence": [
-      { "label": "Project root", "path": "/home/br34d/operator-studio", "kind": "repo" }
+      {
+        "label": "Package",
+        "path": "/demo/workspace/apps/operator-studio/package.json",
+        "kind": "file"
+      },
+      {
+        "label": "Agent notes",
+        "path": "/demo/workspace/apps/operator-studio/agents.md",
+        "kind": "file"
+      }
     ],
-    "tags": ["operator", "product", "laboratory"]
+    "tags": [
+      "agent",
+      "harness",
+      "authority-risk",
+      "agent-trap"
+    ],
+    "analysis": {
+      "source": "demo",
+      "confidence": 0.74,
+      "languages": [
+        "typescript"
+      ],
+      "signals": [
+        "package.json",
+        "agent-notes",
+        "authority-risk"
+      ]
+    }
   },
   {
-    "id": "kern-dogs",
-    "name": "Kern Dogs",
-    "path": "/home/br34d/ghproj/kern_dogs",
-    "status": "active",
-    "health": "fragile",
-    "domain": "research",
-    "activity": 0.74,
-    "substance": 0.82,
-    "position": { "x": 330, "y": -160 },
-    "purpose": "GPU/KCA research work with experiments, tests, and mathematical machinery.",
-    "whyItMatters": "It is one of the strongest signals of technical ambition and nontrivial research taste.",
-    "currentFriction": "Research code can become high-entropy quickly without sharp experiment boundaries and reproducible claims.",
-    "nextMove": "Create mission packets that isolate one claim, one benchmark, and one acceptance test at a time.",
-    "decision": "build",
-    "decisionRationale": "It is substantive enough to deserve guarded, claim-sized research missions.",
-    "nextReview": "2026-05-25",
-    "missionConstraints": [
-      "Snapshot before risky refactors.",
-      "Keep tests and benchmarks attached to claims.",
-      "Separate research exploration from cleanup passes."
-    ],
-    "evidence": [
-      { "label": "Project root", "path": "/home/br34d/ghproj/kern_dogs", "kind": "repo" }
-    ],
-    "tags": ["gpu", "research", "math", "tests"]
-  },
-  {
-    "id": "agent-os",
-    "name": "Agent OS",
-    "path": "/mnt/c/Users/User/environment/agent-os",
+    "id": "operator-studio-v2",
+    "name": "Operator Studio v2",
+    "path": "/demo/workspace/apps/operator-studio-v2",
     "status": "forming",
-    "health": "promising",
+    "health": "fragile",
     "domain": "agentics",
-    "activity": 0.55,
-    "substance": 0.58,
-    "position": { "x": -480, "y": -160 },
-    "purpose": "A local-first agent harness/control-plane experiment.",
-    "whyItMatters": "It points toward the broader need for durable agent processes rather than isolated chat windows.",
-    "currentFriction": "It overlaps conceptually with Excalibur and Codex Operator and needs a clear role.",
-    "nextMove": "Use Cognopticon to decide whether it is active, merged, paused, or archived.",
-    "decision": "triage",
-    "decisionRationale": "It may contain useful harness ideas, but its role is ambiguous beside stronger active systems.",
-    "nextReview": "2026-05-29",
+    "activity": 0.42,
+    "substance": 0.38,
+    "position": {
+      "x": 210,
+      "y": 120
+    },
+    "purpose": "A duplicate restart of Operator Studio.",
+    "whyItMatters": "It demonstrates lineage split and duplicate restart pressure.",
+    "currentFriction": "Overlaps the original without clear divergence.",
+    "nextMove": "Generate a lineage merge mission.",
+    "decision": "merge",
+    "decisionRationale": "Likely duplicate variant of Operator Studio.",
+    "nextReview": "2026-05-21",
     "missionConstraints": [
-      "Clarify ownership before adding features.",
-      "Prefer consolidation over parallel harness sprawl.",
-      "Keep useful patterns as portable dossiers or briefs."
+      "Compare variants before deleting anything.",
+      "Preserve unique ideas in a canonical state packet."
     ],
     "evidence": [
-      { "label": "Project root", "path": "/mnt/c/Users/User/environment/agent-os", "kind": "repo" }
+      {
+        "label": "Package",
+        "path": "/demo/workspace/apps/operator-studio-v2/package.json",
+        "kind": "file"
+      }
     ],
-    "tags": ["agent", "harness", "local-first"]
+    "tags": [
+      "agent",
+      "duplicate",
+      "lineage-split"
+    ],
+    "analysis": {
+      "source": "demo",
+      "confidence": 0.72,
+      "languages": [
+        "typescript"
+      ],
+      "signals": [
+        "package.json",
+        "duplicate-name"
+      ]
+    }
   },
   {
-    "id": "bounding-square-calculus",
-    "name": "Bounding Square Calculus",
-    "path": "/mnt/c/Users/User/Documents/Bounding-Square-Calculus-",
-    "status": "active",
-    "health": "fragile",
-    "domain": "research",
-    "activity": 0.62,
-    "substance": 0.76,
-    "position": { "x": 480, "y": -30 },
-    "purpose": "A mathematical research project with package structure, tests, and an explicit calculus framing.",
-    "whyItMatters": "It belongs to the serious research wing of the workspace: high ambition, high need for clean claims and proofs.",
-    "currentFriction": "The project needs crisp boundaries between insight, formalization, experiment, and exposition.",
-    "nextMove": "Create a single mission focused on one theorem, one validation path, or one explanatory artifact.",
+    "id": "sleeping-giant",
+    "name": "Sleeping Giant",
+    "path": "/demo/workspace/archive/sleeping-giant",
+    "status": "paused",
+    "health": "stalled",
+    "domain": "visualization",
+    "activity": 0.12,
+    "substance": 0.94,
+    "position": {
+      "x": -170,
+      "y": -120
+    },
+    "purpose": "A dormant high-substance visualization project.",
+    "whyItMatters": "It demonstrates the revive/archive decision pattern.",
+    "currentFriction": "Too substantial to ignore, too stale to trust.",
+    "nextMove": "Generate a revive-or-archive mission.",
     "decision": "triage",
-    "decisionRationale": "The ambition is high enough to merit focused review before deeper implementation.",
-    "nextReview": "2026-05-30",
+    "decisionRationale": "High substance and low activity create sleeping giant pressure.",
+    "nextReview": "2026-05-24",
     "missionConstraints": [
-      "Keep claims separate from exploratory notes.",
-      "Tie every implementation change to a mathematical statement or test.",
-      "Do not broaden scope during proof cleanup."
+      "Do not restart from scratch.",
+      "Recover canonical state before building."
     ],
     "evidence": [
-      { "label": "Project root", "path": "/mnt/c/Users/User/Documents/Bounding-Square-Calculus-", "kind": "repo" }
+      {
+        "label": "README",
+        "path": "/demo/workspace/archive/sleeping-giant/README.md",
+        "kind": "file"
+      },
+      {
+        "label": "Scene",
+        "path": "/demo/workspace/archive/sleeping-giant/src/scene.ts",
+        "kind": "file"
+      }
     ],
-    "tags": ["math", "proof", "calculus", "research"]
+    "tags": [
+      "sleeping-giant",
+      "visualization",
+      "archive"
+    ],
+    "analysis": {
+      "source": "demo",
+      "confidence": 0.83,
+      "languages": [
+        "typescript"
+      ],
+      "signals": [
+        "README.md",
+        "src",
+        "stale"
+      ]
+    }
   },
   {
-    "id": "riemann-real-form",
-    "name": "Riemann Real Form",
-    "path": "/home/br34d/ghproj/code/riemann-real-form",
-    "status": "active",
-    "health": "fragile",
-    "domain": "research",
-    "activity": 0.58,
-    "substance": 0.72,
-    "position": { "x": 520, "y": -240 },
-    "purpose": "A structured research/code project around Riemann-related formalization.",
-    "whyItMatters": "It is a strong signal of the user’s appetite for difficult, symbolic, high-risk intellectual work.",
-    "currentFriction": "The cost of being wrong is high, so the project needs narrow proofs, reproducible checks, and honest uncertainty.",
-    "nextMove": "Generate a mission brief that isolates one checkable mathematical or computational claim.",
-    "decision": "triage",
-    "decisionRationale": "This should proceed through falsifiable subclaims, not broad undisciplined continuation.",
+    "id": "archive-fossil",
+    "name": "Archive Fossil",
+    "path": "/demo/workspace/archive/fossil",
+    "status": "archive",
+    "health": "stalled",
+    "domain": "infrastructure",
+    "activity": 0.04,
+    "substance": 0.28,
+    "position": {
+      "x": -220,
+      "y": -40
+    },
+    "purpose": "An old reference project preserved as fossil evidence.",
+    "whyItMatters": "It demonstrates intentional archiving instead of zombie active work.",
+    "currentFriction": "Needs summary and relationship notes.",
+    "nextMove": "Archive with summary and mark non-active.",
+    "decision": "archive",
+    "decisionRationale": "Low current leverage, useful only as reference.",
     "nextReview": "2026-06-01",
     "missionConstraints": [
-      "Use careful language around unproven claims.",
-      "Prefer falsifiable subclaims over sweeping assertions.",
-      "Record verification commands and failure modes."
+      "Summarize before archiving.",
+      "Do not revive without new evidence."
     ],
     "evidence": [
-      { "label": "Project root", "path": "/home/br34d/ghproj/code/riemann-real-form", "kind": "repo" }
+      {
+        "label": "README",
+        "path": "/demo/workspace/archive/fossil/README.md",
+        "kind": "file"
+      }
     ],
-    "tags": ["riemann", "formalization", "math", "research"]
+    "tags": [
+      "archive",
+      "fossil",
+      "reference"
+    ],
+    "analysis": {
+      "source": "demo",
+      "confidence": 0.68,
+      "signals": [
+        "README.md",
+        "archive"
+      ]
+    }
   },
   {
-    "id": "fold-entropy",
-    "name": "Fold Entropy",
-    "path": "/home/br34d/ghproj/windows_imports/fold-entropy-project",
-    "status": "paused",
-    "health": "unknown",
-    "domain": "research",
-    "activity": 0.38,
-    "substance": 0.6,
-    "position": { "x": 410, "y": 185 },
-    "purpose": "A research import around fold entropy and related computational/mathematical structures.",
-    "whyItMatters": "It may contain reusable conceptual material for the broader math/research cluster.",
-    "currentFriction": "Imported state and unclear recency make it hard to tell whether this should be revived, merged, or archived.",
-    "nextMove": "Run a triage mission: identify core claims, current runnable state, and whether it should feed another project.",
-    "decision": "triage",
-    "decisionRationale": "Imported research material should be classified before it receives more build energy.",
-    "nextReview": "2026-06-04",
-    "missionConstraints": [
-      "Do not refactor before classifying the project.",
-      "Separate salvageable ideas from stale implementation.",
-      "End with a keep, merge, pause, or archive recommendation."
-    ],
-    "evidence": [
-      { "label": "Project root", "path": "/home/br34d/ghproj/windows_imports/fold-entropy-project", "kind": "repo" }
-    ],
-    "tags": ["entropy", "math", "import", "triage"]
-  },
-  {
-    "id": "parameter-golf",
-    "name": "Parameter Golf",
-    "path": "/mnt/c/Users/User/Projects/parameter-golf",
-    "status": "paused",
+    "id": "release-blocker",
+    "name": "Public Release Blocker",
+    "path": "/demo/workspace/release/public-blocker",
+    "status": "active",
     "health": "fragile",
-    "domain": "research",
-    "activity": 0.44,
-    "substance": 0.68,
-    "position": { "x": 180, "y": -330 },
-    "purpose": "A cluster of OpenAI parameter-golf competition variants and Parallax Bloom experiments.",
-    "whyItMatters": "It shows competitive model-building taste and a willingness to iterate through experimental variants.",
-    "currentFriction": "Multiple variant directories make it easy to lose the canonical best state.",
-    "nextMove": "Create a consolidation mission that identifies the latest useful variant and preserves why it matters.",
-    "decision": "merge",
-    "decisionRationale": "The variant cluster needs consolidation more than new parallel experimentation.",
-    "nextReview": "2026-06-05",
+    "domain": "operations",
+    "activity": 0.72,
+    "substance": 0.66,
+    "position": {
+      "x": 20,
+      "y": -170
+    },
+    "purpose": "A project close to release but blocked by docs, tests, and private-data hygiene.",
+    "whyItMatters": "It demonstrates public-release anxiety as an operational state.",
+    "currentFriction": "Private paths and missing demo script block sharing.",
+    "nextMove": "Generate a public-release hardening mission.",
+    "decision": "build",
+    "decisionRationale": "The project is close enough that hygiene work is the leverage point.",
+    "nextReview": "2026-05-21",
     "missionConstraints": [
-      "Do not delete old variants during triage.",
-      "Name the current best candidate explicitly.",
-      "Separate competition artifacts from reusable technique notes."
+      "No private paths in public data.",
+      "Run final checks before sharing."
     ],
     "evidence": [
-      { "label": "Project cluster", "path": "/mnt/c/Users/User/Projects/parameter-golf", "kind": "repo" }
+      {
+        "label": "Package",
+        "path": "/demo/workspace/release/public-blocker/package.json",
+        "kind": "file"
+      },
+      {
+        "label": "README",
+        "path": "/demo/workspace/release/public-blocker/README.md",
+        "kind": "file"
+      }
     ],
-    "tags": ["competition", "models", "variants", "triage"]
+    "tags": [
+      "public-release",
+      "hygiene",
+      "demo-anchor"
+    ],
+    "analysis": {
+      "source": "demo",
+      "confidence": 0.8,
+      "languages": [
+        "typescript"
+      ],
+      "signals": [
+        "README.md",
+        "package.json",
+        "public-hygiene-risk"
+      ]
+    }
   }
 ]

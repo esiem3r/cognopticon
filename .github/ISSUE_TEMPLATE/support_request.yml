@@ -1,0 +1,42 @@
+name: Support request
+description: Ask for help without sharing private local workspace data.
+title: "[Support]: "
+labels:
+  - support
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `SUPPORT.md` first. Do not include `.cognopticon/` state, daemon tokens, private paths, generated local workspace data, secret logs, or screenshots that reveal private project names.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed private paths, generated local workspace data, daemon tokens, secrets, and private screenshots.
+          required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Public demo
+        - Local runtime
+        - Daemon
+        - Release gate
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: What do you need help with?
+      description: Use sanitized examples such as `/demo/example`.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Sanitized context
+      description: Include command names and trimmed output only when safe.
+      render: text

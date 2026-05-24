@@ -1,20 +1,25 @@
 import { ClipboardList, ExternalLink, FileText, Network, ShieldCheck } from "lucide-react";
 import { decisionLabels, domainColors, domainLabels, healthLabels, relatedProjects, statusLabels } from "../lib/domain";
-import type { ProjectDossier, ProjectRelationship } from "../types/cognopticon";
+import type { CognopticonWorkspace, ProjectDossier, ProjectRelationship } from "../types/cognopticon";
 
 interface DossierPanelProps {
   project: ProjectDossier;
   projects: ProjectDossier[];
   relationships: ProjectRelationship[];
+  workspace: CognopticonWorkspace;
   onCreateBrief: (project: ProjectDossier) => void;
 }
 
-export function DossierPanel({ project, projects, relationships, onCreateBrief }: DossierPanelProps) {
+export function DossierPanel({ project, projects, relationships, workspace, onCreateBrief }: DossierPanelProps) {
   const related = relatedProjects(project.id, projects, relationships);
   const color = domainColors[project.domain];
 
   return (
     <aside className="dossier-panel" aria-label={`${project.name} dossier`}>
+      <div className="telemetry-kicker">
+        <span>{workspace.title}</span>
+        <strong>{project.analysis?.source ?? workspace.analysis?.source ?? "static"}</strong>
+      </div>
       <header className="dossier-header">
         <div className="domain-mark" style={{ background: color }} />
         <div>
@@ -28,6 +33,8 @@ export function DossierPanel({ project, projects, relationships, onCreateBrief }
         <Metric label="Health" value={healthLabels[project.health]} />
         <Metric label="Activity" value={`${Math.round(project.activity * 100)}%`} />
         <Metric label="Substance" value={`${Math.round(project.substance * 100)}%`} />
+        <Metric label="Confidence" value={`${Math.round((project.analysis?.confidence ?? 0.5) * 100)}%`} />
+        <Metric label="Signals" value={`${project.analysis?.signals?.length ?? project.evidence.length}`} />
       </div>
 
       <section className="decision-band">
@@ -63,9 +70,27 @@ export function DossierPanel({ project, projects, relationships, onCreateBrief }
             <div key={relationship.id} className="relationship-item">
               <strong>{relatedProject.name}</strong>
               <span>{relationship.label}</span>
+              <small>{relationship.sourceKind ?? "static"} / strength {Math.round(relationship.strength * 100)}%</small>
+              {relationship.evidence?.slice(0, 2).map((item) => (
+                <em key={`${relationship.id}-${item.label}`}>{item.label}: {item.detail}</em>
+              ))}
             </div>
           ))}
           {!related.length && <p>No relationships recorded.</p>}
+        </div>
+      </section>
+
+      <section>
+        <h3>Analysis</h3>
+        <div className="analysis-grid">
+          {(project.analysis?.languages?.length ?? 0) > 0 && <Metric label="Languages" value={project.analysis?.languages?.join(", ") ?? ""} />}
+          {(project.analysis?.frameworks?.length ?? 0) > 0 && <Metric label="Frameworks" value={project.analysis?.frameworks?.join(", ") ?? ""} />}
+        </div>
+        <div className="analysis-evidence">
+          {project.analysis?.layoutReasons?.map((item) => (
+            <p key={`${item.label}-${item.detail}`}><strong>{item.label}</strong> {item.detail}</p>
+          ))}
+          {!project.analysis?.layoutReasons?.length && <p>No analysis notes yet. Generate agent enrichment packets to deepen this dossier.</p>}
         </div>
       </section>
 

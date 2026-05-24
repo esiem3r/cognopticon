@@ -1,14 +1,21 @@
-import { type CSSProperties, useMemo, useState } from "react";
-import { Activity, ListChecks, Search, Sparkles, X } from "lucide-react";
-import { DossierPanel } from "./components/DossierPanel";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { Activity, ListChecks, LocateFixed, Maximize2, Search, Sparkles, X } from "lucide-react";
+import { runAgencyTick } from "./agency/agencyKernel";
+import type { DaemonStatus } from "./agency/types";
+import { CognitionRail } from "./components/cognition/CognitionRail";
 import { MissionDrawer } from "./components/MissionDrawer";
-import { UniverseCanvas } from "./components/UniverseCanvas";
-import { projectDossiers, projectRelationships } from "./lib/data";
+import { UniverseCanvas, type GraphCommand, type ProjectLabel } from "./components/UniverseCanvas";
+import { compileMissionForProposal } from "./intelligence/missionCompiler";
+import type { CognopticonEvent, InterventionProposal } from "./intelligence/types";
 import { domainLabels, focusModeMatches, focusModes, generateMissionBrief, nextActionQueue, projectMatches, statusLabels, type FocusMode } from "./lib/domain";
-import type { MissionBrief, ProjectDomain, ProjectDossier, ProjectStatus } from "./types/cognopticon";
+import { loadWorkspace, sampleWorkspace } from "./lib/workspace";
+import { adaptProjectDossiers } from "./model/adaptProjectDossier";
+import { DetailTray } from "./overlays/DetailTray";
+import { NodeCockpit } from "./overlays/NodeCockpit";
+import { NodeOverlayLayer } from "./overlays/NodeOverlayLayer";
+import { checkDaemonHealth, createDaemonJob, getDaemonJob, recordOrchestratorTaskEvent, startOrchestratorSession, subscribeDaemonEvents } from "./services/daemonClient";
+import type { CognopticonWorkspace, MissionBrief, ProjectDomain, ProjectDossier, ProjectStatus, RunRecord } from "./types/cognopticon";
 
-const allDomains = Array.from(new Set(projectDossiers.map((project) => project.domain))).sort() as ProjectDomain[];
-const allStatuses = Array.from(new Set(projectDossiers.map((project) => project.status))).sort() as ProjectStatus[];
 const projectTypeFilters = [
   { id: "ai", label: "AI", matches: (project: ProjectDossier) => project.domain === "agentics" || project.tags.some((tag) => tag.includes("agent") || tag === "models") },
   { id: "math", label: "Math", matches: (project: ProjectDossier) => project.tags.includes("math") || project.tags.includes("proof") || project.tags.includes("calculus") },
@@ -19,7 +26,8 @@ const projectTypeFilters = [
 ] as const;
 
 export default function App() {
-  const [selectedId, setSelectedId] = useState("cognopticon");
+  const [workspace, setWorkspace] = useState<CognopticonWorkspace>(sampleWorkspace);
+  const [selectedId, setSelectedId] = useState(sampleWorkspace.projects[0]?.id ?? "workspace-core");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [domain, setDomain] = useState<ProjectDomain | "all">("all");
@@ -30,10 +38,87 @@ export default function App() {
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [screenNodes, setScreenNodes] = useState<ProjectLabel[]>([]);
+  const [graphCommand, setGraphCommand] = useState<GraphCommand | null>(null);
+  const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>({ online: false, url: "http://127.0.0.1:8787", checkedAt: new Date().toISOString(), error: "not checked" });
+  const [orchestratorActive, setOrchestratorActive] = useState(false);
+  const [orchestratorMessage, setOrchestratorMessage] = useState("Agent work is only exposed through the orchestrator. Worker/sub-agent machinery stays behind this boundary.");
+  const [orchestratorSessionId, setOrchestratorSessionId] = useState<string | undefined>();
   const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
+  const [taskSyncState, setTaskSyncState] = useState<Record<string, "local" | "syncing" | "synced" | "error">>({});
+  const [verificationState, setVerificationState] = useState<Record<string, { status: "idle" | "running" | "passed" | "failed"; summary: string }>>({});
+  const [runtimeEvents, setRuntimeEvents] = useState<CognopticonEvent[]>([]);
+  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [runsLoadedKey, setRunsLoadedKey] = useState("");
   const [brief, setBrief] = useState<MissionBrief | null>(null);
 
-  const selectedProject = projectDossiers.find((project) => project.id === selectedId) ?? projectDossiers[0];
+  useEffect(() => {
+    let alive = true;
+    loadWorkspace().then((nextWorkspace) => {
+      if (!alive) return;
+      setWorkspace(nextWorkspace);
+      setSelectedId((current) => nextWorkspace.projects.some((project) => project.id === current) ? current : nextWorkspace.projects[0]?.id ?? "workspace-core");
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    checkDaemonHealth().then((status) => {
+      if (alive) setDaemonStatus(status);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!daemonStatus.online) return;
+    return subscribeDaemonEvents((event) => {
+      setRuntimeEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 80));
+    }, daemonStatus.url);
+  }, [daemonStatus.online, daemonStatus.url]);
+
+  const projectDossiers = workspace.projects;
+  const projectRelationships = workspace.relationships;
+  const runStorageKey = useMemo(() => workspaceRunStorageKey(workspace), [workspace]);
+  const allDomains = useMemo(() => Array.from(new Set(projectDossiers.map((project) => project.domain))).sort() as ProjectDomain[], [projectDossiers]);
+  const allStatuses = useMemo(() => Array.from(new Set(projectDossiers.map((project) => project.status))).sort() as ProjectStatus[], [projectDossiers]);
+  const selectedProject = projectDossiers.find((project) => project.id === selectedId) ?? projectDossiers[0] ?? sampleWorkspace.projects[0];
+  const nodes = useMemo(() => adaptProjectDossiers(projectDossiers, projectRelationships), [projectDossiers, projectRelationships]);
+  const selectedNode = nodes.find((node) => node.id === selectedProject.id) ?? nodes[0];
+  const agencyTick = useMemo(() => runAgencyTick({
+    workspaceId: workspace.title,
+    nodes,
+    relationships: projectRelationships,
+    events: runtimeEvents,
+    goals: [],
+    policy: {
+      autonomyLevel: daemonStatus.online ? "execute_registered_actions" : "prepare_missions",
+      allowedRoots: workspace.roots,
+      allowedCommands: ["npm", "node"],
+      autoGenerateMissions: true,
+      autoRunReadOnlyChecks: false,
+      autoLaunchRegisteredTools: false,
+      autoDelegateToAgents: false,
+      requireApprovalFor: ["file_edits", "file_deletes", "git_commit", "git_push", "external_network", "agent_delegation", "long_running_process"]
+    },
+    daemonStatus
+  }), [daemonStatus, nodes, projectRelationships, runtimeEvents, workspace.roots, workspace.title]);
+
+  useEffect(() => {
+    pruneLegacyRunStorage();
+    setRuns(loadStoredRuns(runStorageKey));
+    setRunsLoadedKey(runStorageKey);
+  }, [runStorageKey]);
+
+  useEffect(() => {
+    if (runsLoadedKey !== runStorageKey) return;
+    window.localStorage.setItem(runStorageKey, JSON.stringify(runs.slice(0, 20)));
+  }, [runStorageKey, runs, runsLoadedKey]);
 
   const filteredProjects = useMemo(() => {
     return projectDossiers.filter((project) => {
@@ -46,18 +131,48 @@ export default function App() {
       const projectOk = selectedProjects.size === 0 || selectedProjects.has(project.id);
       return domainOk && statusOk && focusOk && queryOk && domainClusterOk && typeOk && projectOk;
     });
-  }, [domain, focusMode, query, selectedDomains, selectedProjects, selectedTypes, status]);
+  }, [domain, focusMode, projectDossiers, query, selectedDomains, selectedProjects, selectedTypes, status]);
 
   const filteredIds = useMemo(() => new Set(filteredProjects.map((project) => project.id)), [filteredProjects]);
 
   function focusFirstMatch(value: string) {
     setQuery(value);
-    const match = projectDossiers.find((project) => projectMatches(project, value));
+    const normalized = value.trim().toLowerCase();
+    const matches = projectDossiers.filter((project) => projectMatches(project, value));
+    const match = matches.find((project) => project.name.toLowerCase() === normalized)
+      ?? matches.find((project) => project.name.toLowerCase().includes(normalized))
+      ?? matches.find((project) => project.id !== "workspace-core")
+      ?? matches[0];
     if (value.trim() && match) setSelectedId(match.id);
   }
 
   function createBrief(project: ProjectDossier) {
-    setBrief(generateMissionBrief(project, projectDossiers, projectRelationships));
+    const nextBrief = generateMissionBrief(project, projectDossiers, projectRelationships);
+    setBrief(nextBrief);
+    upsertRun({
+      id: missionRunId(nextBrief),
+      projectId: project.id,
+      title: `${project.name} mission`,
+      status: "awaiting_approval",
+      summary: "Mission packet generated. Approval required before dispatch.",
+      createdAt: nextBrief.generatedAt,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  function createProposalBrief(proposal: InterventionProposal) {
+    const mission = compileMissionForProposal(proposal, nodes);
+    const nextBrief = { projectId: proposal.nodeIds[0] ?? selectedProject.id, markdown: mission.markdown, generatedAt: mission.createdAt };
+    setBrief(nextBrief);
+    upsertRun({
+      id: missionRunId(nextBrief),
+      projectId: nextBrief.projectId,
+      title: mission.title,
+      status: "awaiting_approval",
+      summary: "Proposal mission compiled. Approval required before dispatch.",
+      createdAt: mission.createdAt,
+      updatedAt: new Date().toISOString()
+    });
   }
 
   function toggleSetValue<T>(set: Set<T>, value: T) {
@@ -73,11 +188,197 @@ export default function App() {
     setSelectedProjects(new Set());
   }
 
-  const queue = useMemo(() => nextActionQueue(filteredProjects).slice(0, 5), [filteredProjects]);
-  const activeOverlayFilterCount = selectedDomains.size + selectedTypes.size + selectedProjects.size;
+  async function activateOrchestrator() {
+    setOrchestratorActive(true);
+    setQueueOpen(true);
+    setDetailOpen(false);
+    setFocusMode("all");
+    resetOverlayFilters();
+    requestAnimationFrame(() => {
+      document.querySelector(".canvas-stage")?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
 
-  function toggleTask(taskId: string) {
-    setCompletedTasks((value) => toggleSetValue(value, taskId));
+    if (!daemonStatus.online) {
+      setOrchestratorMessage("Visualizer is armed locally. Daemon is offline, so the orchestrator can prepare/focus missions but cannot dispatch local jobs.");
+      return;
+    }
+
+    const result = await startOrchestratorSession({
+      focusProjectId: selectedProject.id,
+      visualizerUrl: window.location.href
+    }, daemonStatus.url);
+    if (result.ok) {
+      setOrchestratorSessionId(result.sessionId);
+      setOrchestratorMessage("Daemon acknowledged the orchestrator session. Task checks now write orchestrator events while the visualizer follows the selected project.");
+    } else {
+      setOrchestratorMessage(result.message);
+    }
+  }
+
+  const queue = useMemo(() => nextActionQueue(filteredProjects).slice(0, 5), [filteredProjects]);
+  const mobileProposal = agencyTick.proposals.find((proposal) => proposal.nodeIds.includes(selectedProject.id));
+  const mobileQueueProject = queue.find((project) => project.id === selectedProject.id) ?? queue[0];
+  const mobileActionKicker = mobileProposal ? "Top proposal" : "Selected";
+  const mobileActionTitle = mobileProposal?.title ?? selectedProject.name;
+  const mobileActionSummary = mobileProposal?.summary ?? mobileQueueProject?.nextMove ?? selectedProject.nextMove;
+  const activeOverlayFilterCount = selectedDomains.size + selectedTypes.size + selectedProjects.size;
+  const graphStats = useMemo(() => ({
+    ready: nodes.filter((node) => filteredIds.has(node.id) && node.state.readiness >= 68).length,
+    anomalous: nodes.filter((node) => filteredIds.has(node.id) && node.visual.anomalyIntensity > 0.3).length,
+    launchable: nodes.filter((node) => filteredIds.has(node.id) && node.launch).length,
+    activeLinks: projectRelationships.filter((relationship) => filteredIds.has(relationship.source) && filteredIds.has(relationship.target)).length
+  }), [filteredIds, nodes, projectRelationships]);
+
+  async function toggleTask(project: ProjectDossier, task: ReturnType<typeof projectTaskItems>[number]) {
+    const completed = !completedTasks.has(task.id);
+    setSelectedId(project.id);
+    setCompletedTasks((value) => {
+      const next = new Set(value);
+      if (completed) next.add(task.id);
+      else next.delete(task.id);
+      return next;
+    });
+
+    if (!orchestratorActive) {
+      setTaskSyncState((value) => ({ ...value, [task.id]: "local" }));
+      setOrchestratorMessage("Task marked locally. Start the orchestrator to write checks into the daemon event log.");
+      return;
+    }
+
+    if (!daemonStatus.online) {
+      setTaskSyncState((value) => ({ ...value, [task.id]: "local" }));
+      setOrchestratorMessage("Task marked locally. Daemon is offline, so no runtime event was recorded.");
+      return;
+    }
+
+    setTaskSyncState((value) => ({ ...value, [task.id]: "syncing" }));
+    const result = await recordOrchestratorTaskEvent({
+      sessionId: orchestratorSessionId,
+      taskId: task.id,
+      projectId: project.id,
+      label: task.label,
+      completed
+    }, daemonStatus.url);
+    setTaskSyncState((value) => ({ ...value, [task.id]: result.ok ? "synced" : "error" }));
+    setOrchestratorMessage(result.ok
+      ? `${project.name}: ${result.message}`
+      : `${project.name}: ${result.message}`);
+  }
+
+  async function runVerification(project: ProjectDossier) {
+    setSelectedId(project.id);
+    if (!daemonStatus.online) {
+      setVerificationState((value) => ({ ...value, [project.id]: { status: "failed", summary: "Daemon offline; verification was not run." } }));
+      return;
+    }
+
+    const command = verificationCommandFor(project);
+    if (!command) {
+      setVerificationState((value) => ({ ...value, [project.id]: { status: "failed", summary: "No safe verification command inferred for this project." } }));
+      return;
+    }
+
+    setVerificationState((value) => ({ ...value, [project.id]: { status: "running", summary: `${command.command} ${command.args.join(" ")}` } }));
+    const result = await dispatchDaemonRun({
+      runId: `verify:${project.id}`,
+      projectId: project.id,
+      title: `${project.name} verification`,
+      command,
+      createdAt: new Date().toISOString()
+    });
+    setVerificationState((value) => ({
+      ...value,
+      [project.id]: {
+        status: result.status === "completed" ? "passed" : "failed",
+        summary: result.summary
+      }
+    }));
+    setOrchestratorMessage(`${project.name}: verification ${result.status === "completed" ? "passed" : "failed"} via daemon job.`);
+  }
+
+  async function markMissionReviewed() {
+    if (!brief) return;
+    const project = projectDossiers.find((item) => item.id === brief.projectId) ?? selectedProject;
+    const runId = missionRunId(brief);
+    upsertRun({
+      id: runId,
+      projectId: project.id,
+      title: `${project.name} mission`,
+      status: "reviewed",
+      summary: "Mission reviewed and staged. No command was dispatched; use Run or Run Verification for daemon execution.",
+      createdAt: brief.generatedAt,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  function createMobileActionMission() {
+    if (mobileProposal) createProposalBrief(mobileProposal);
+    else createBrief(selectedProject);
+  }
+
+  async function runSelectedLaunch() {
+    const command = selectedNode.launch?.commands?.[0];
+    if (!command) return;
+    setSelectedId(selectedNode.id);
+    const runId = `launch:${selectedNode.id}:${Date.now()}`;
+    upsertRun({
+      id: runId,
+      projectId: selectedNode.id,
+      title: command.label,
+      status: daemonStatus.online ? "running" : "blocked",
+      summary: daemonStatus.online ? `Running ${command.command} ${command.args.join(" ")} through daemon.` : "Launch blocked: daemon is offline.",
+      command: `${command.command} ${command.args.join(" ")}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    if (!daemonStatus.online) return;
+    await dispatchDaemonRun({ runId, projectId: selectedNode.id, title: command.label, command, createdAt: new Date().toISOString() });
+  }
+
+  function upsertRun(run: RunRecord) {
+    setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)].slice(0, 20));
+  }
+
+  async function dispatchDaemonRun({
+    runId,
+    projectId,
+    title,
+    command,
+    createdAt
+  }: {
+    runId: string;
+    projectId: string;
+    title: string;
+    command: { cwd?: string; command: string; args: string[] };
+    createdAt: string;
+  }) {
+    const commandText = `${command.command} ${command.args.join(" ")}`.trim();
+    const cwd = command.cwd ?? projectDossiers.find((project) => project.id === projectId)?.path ?? selectedProject.path;
+    upsertRun({ id: runId, projectId, title, status: "dispatched", summary: `Dispatching ${commandText}`, command: commandText, createdAt, updatedAt: new Date().toISOString() });
+    const queued = await createDaemonJob({ cwd, command: command.command, args: command.args }, daemonStatus.url);
+    if (!queued.ok || !queued.jobId) {
+      const failed = { status: "failed" as const, summary: queued.message };
+      upsertRun({ id: runId, projectId, title, ...failed, command: commandText, createdAt, updatedAt: new Date().toISOString() });
+      return failed;
+    }
+    upsertRun({ id: runId, projectId, title, status: "running", summary: `Daemon job ${queued.jobId} running: ${commandText}`, command: commandText, jobId: queued.jobId, createdAt, updatedAt: new Date().toISOString() });
+    const finalJob = await waitForDaemonJob(queued.jobId);
+    const status = finalJob?.status === "completed" ? "completed" as const : "failed" as const;
+    const summary = finalJob
+      ? `${finalJob.command} exited ${finalJob.exitCode ?? "unknown"}${finalJob.stderr ? `: ${finalJob.stderr.slice(0, 180)}` : ""}`
+      : `Daemon job ${queued.jobId} did not reach a terminal state.`;
+    upsertRun({ id: runId, projectId, title, status, summary, command: commandText, jobId: queued.jobId, createdAt, updatedAt: new Date().toISOString() });
+    return { status, summary };
+  }
+
+  async function waitForDaemonJob(jobId: string) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const result = await getDaemonJob(jobId, daemonStatus.url);
+      const job = result.job;
+      if (job && ["completed", "failed", "cancelled", "timed_out"].includes(job.status)) return job;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return undefined;
   }
 
   return (
@@ -87,7 +388,7 @@ export default function App() {
           <Sparkles size={18} aria-hidden />
           <div>
             <h1>Cognopticon</h1>
-            <span>{projectDossiers.length} projects / {projectRelationships.length} relationships</span>
+            <span>{projectDossiers.length} nodes / {projectRelationships.length} links / {workspace.analysis?.source ?? "sample"}</span>
           </div>
         </div>
 
@@ -96,7 +397,7 @@ export default function App() {
           <input
             value={query}
             onChange={(event) => focusFirstMatch(event.target.value)}
-            placeholder="Search projects, paths, friction, next moves"
+            placeholder="Search projects or paths"
             aria-label="Search projects"
           />
         </label>
@@ -141,13 +442,34 @@ export default function App() {
         <div className="canvas-stage">
           <UniverseCanvas
             projects={projectDossiers}
+            nodes={nodes}
             relationships={projectRelationships}
             selectedId={selectedProject.id}
             hoveredId={hoveredId}
             filteredIds={filteredIds}
             onSelect={setSelectedId}
             onHover={setHoveredId}
+            onScreenNodes={setScreenNodes}
+            command={graphCommand}
+            labelsSuppressed={filtersOpen || queueOpen}
           />
+          <NodeOverlayLayer nodes={nodes} screenNodes={screenNodes} hoveredId={hoveredId} />
+          <div className="graph-controls" aria-label="Graph controls">
+            <button type="button" aria-label="Fit" onClick={() => setGraphCommand({ type: "fit", nonce: Date.now() })}>
+              <Maximize2 size={16} aria-hidden />
+              <span>Fit</span>
+            </button>
+            <button type="button" aria-label="Center" onClick={() => setGraphCommand({ type: "recenter", nonce: Date.now() })}>
+              <LocateFixed size={16} aria-hidden />
+              <span>Center</span>
+            </button>
+          </div>
+          <div className="graph-instrument" aria-label="Graph state encoding">
+            <span><i className="key readiness" />Ready {graphStats.ready}</span>
+            <span><i className="key anomaly" />Anomaly {graphStats.anomalous}</span>
+            <span><i className="key launch" />Launch {graphStats.launchable}</span>
+            <span><i className="key link" />Links {graphStats.activeLinks}</span>
+          </div>
 
           <div className="queue-overlay">
             <button
@@ -189,10 +511,21 @@ export default function App() {
                         <div className="subtask-list">
                           {tasks.map((task) => (
                             <label key={task.id}>
-                              <input type="checkbox" checked={completedTasks.has(task.id)} onChange={() => toggleTask(task.id)} />
+                              <input type="checkbox" checked={completedTasks.has(task.id)} onChange={() => void toggleTask(project, task)} />
                               <span>{task.label}</span>
+                              <em data-state={taskSyncState[task.id] ?? "idle"}>
+                                {taskSyncLabel(taskSyncState[task.id], orchestratorActive)}
+                              </em>
                             </label>
                           ))}
+                          <button type="button" className="verify-button" onClick={() => void runVerification(project)}>
+                            Run Verification
+                          </button>
+                          {verificationState[project.id] && (
+                            <output className="verification-output" data-state={verificationState[project.id].status}>
+                              {verificationState[project.id].status}: {verificationState[project.id].summary}
+                            </output>
+                          )}
                         </div>
                       </details>
                     );
@@ -265,17 +598,62 @@ export default function App() {
               </div>
             )}
           </div>
+
+          <section className="mobile-action-dock" aria-label="Mobile workflow actions">
+            <div>
+              <span>{mobileActionKicker}</span>
+              <strong>{mobileActionTitle}</strong>
+              <p>{mobileActionSummary}</p>
+            </div>
+            <div className="mobile-action-buttons">
+              <button type="button" onClick={createMobileActionMission}>Mission</button>
+              <button type="button" onClick={() => void activateOrchestrator()}>
+                {orchestratorActive ? "Recenter" : "Orchestrate"}
+              </button>
+            </div>
+          </section>
         </div>
 
-        <DossierPanel
-          project={selectedProject}
-          projects={projectDossiers}
-          relationships={projectRelationships}
-          onCreateBrief={createBrief}
+        <NodeCockpit
+          node={selectedNode}
+          beliefs={agencyTick.beliefs}
+          proposals={agencyTick.proposals}
+          daemonStatus={daemonStatus}
+          launchRunStatus={runs.find((run) => run.projectId === selectedNode.id)?.summary}
+          onCreateMission={() => createBrief(selectedProject)}
+          onRunLaunch={() => void runSelectedLaunch()}
+          onOpenDetail={() => setDetailOpen(true)}
+        />
+        <CognitionRail
+          tick={agencyTick}
+          daemonStatus={daemonStatus}
+          orchestratorActive={orchestratorActive}
+          orchestratorMessage={orchestratorMessage}
+          runtimeEvents={runtimeEvents}
+          runs={runs}
+          onFocus={setSelectedId}
+          onMission={createProposalBrief}
+          onStartOrchestrator={activateOrchestrator}
         />
       </section>
 
-      <MissionDrawer brief={brief} project={selectedProject} onClose={() => setBrief(null)} />
+      <DetailTray
+        open={detailOpen}
+        project={selectedProject}
+        projects={projectDossiers}
+        relationships={projectRelationships}
+        workspace={workspace}
+        onCreateBrief={createBrief}
+        onClose={() => setDetailOpen(false)}
+      />
+      <MissionDrawer
+        brief={brief}
+        project={projectDossiers.find((project) => project.id === brief?.projectId) ?? selectedProject}
+        dispatchStatus={brief ? runs.find((run) => run.id === missionRunId(brief))?.status : undefined}
+        dispatchSummary={brief ? runs.find((run) => run.id === missionRunId(brief))?.summary : undefined}
+        onMarkReviewed={() => void markMissionReviewed()}
+        onClose={() => setBrief(null)}
+      />
     </main>
   );
 }
@@ -287,4 +665,86 @@ function projectTaskItems(project: ProjectDossier) {
     { id: `${project.id}:advance`, label: project.nextMove },
     { id: `${project.id}:verify`, label: "Run a concrete verification and capture the result" }
   ];
+}
+
+function taskSyncLabel(state: "local" | "syncing" | "synced" | "error" | undefined, orchestratorActive: boolean) {
+  if (state === "syncing") return "syncing";
+  if (state === "synced") return "daemon";
+  if (state === "error") return "error";
+  if (state === "local") return "local";
+  return orchestratorActive ? "ready" : "local";
+}
+
+function verificationCommandFor(project: ProjectDossier) {
+  const evidence = project.evidence.map((item) => `${item.label} ${item.path}`).join(" ").toLowerCase();
+  if (evidence.includes("package.json")) return { command: "npm", args: ["test"] };
+  return undefined;
+}
+
+function missionRunId(brief: MissionBrief) {
+  return `mission:${brief.projectId}:${brief.generatedAt}`;
+}
+
+function workspaceRunStorageKey(workspace: CognopticonWorkspace) {
+  const profile = safeStorageSegment(workspace.profile?.id ?? workspace.analysis?.source ?? "sample");
+  const fingerprint = stableStorageHash([
+    workspace.profile?.id,
+    workspace.profile?.deviceId,
+    workspace.profile?.stateDir,
+    workspace.analysis?.source,
+    workspace.title,
+    workspace.generatedAt,
+    ...workspace.roots
+  ].filter(Boolean).join("\u001f"));
+  return `cognopticon:runs:v2:${profile}:${fingerprint}`;
+}
+
+function loadStoredRuns(storageKey: string): RunRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isStoredRunRecord).slice(0, 20);
+  } catch {
+    return [];
+  }
+}
+
+function safeStorageSegment(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workspace";
+}
+
+function stableStorageHash(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function isStoredRunRecord(value: unknown): value is RunRecord {
+  if (!value || typeof value !== "object") return false;
+  const run = value as Partial<RunRecord>;
+  const validStatuses: RunRecord["status"][] = ["draft", "awaiting_approval", "reviewed", "approved", "dispatched", "running", "completed", "failed", "blocked"];
+  return typeof run.id === "string"
+    && typeof run.projectId === "string"
+    && typeof run.title === "string"
+    && typeof run.summary === "string"
+    && typeof run.createdAt === "string"
+    && typeof run.updatedAt === "string"
+    && Boolean(run.status && validStatuses.includes(run.status));
+}
+
+function pruneLegacyRunStorage() {
+  if (typeof window === "undefined") return;
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (!key) continue;
+    if (key === "cognopticon:runs" || (key.startsWith("cognopticon:runs:") && !key.startsWith("cognopticon:runs:v2:"))) {
+      window.localStorage.removeItem(key);
+    }
+  }
 }

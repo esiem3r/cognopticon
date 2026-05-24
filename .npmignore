@@ -1,0 +1,14 @@
+.github/
+.cognopticon/
+_cognopticon_safety/
+.env
+.env.*
+.vite/
+dist/
+missions/
+node_modules/
+playwright-report/
+public/workspace.json
+src/data/demo-workspace.json
+test-results/
+workspace-scan.json

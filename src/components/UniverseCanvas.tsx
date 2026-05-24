@@ -1,6 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as THREE from "three";
+import {
+  AdditiveBlending,
+  AmbientLight,
+  BackSide,
+  BufferAttribute,
+  BufferGeometry,
+  CanvasTexture,
+  Color,
+  ConeGeometry,
+  FogExp2,
+  Group,
+  Line,
+  MathUtils,
+  Mesh,
+  MeshBasicMaterial,
+  Object3D,
+  OctahedronGeometry,
+  PerspectiveCamera,
+  PointLight,
+  Points,
+  PointsMaterial,
+  QuadraticBezierCurve3,
+  Raycaster,
+  Scene,
+  ShaderMaterial,
+  SphereGeometry,
+  Spherical,
+  Sprite,
+  SpriteMaterial,
+  Texture,
+  TorusGeometry,
+  Vector2,
+  Vector3,
+  WebGLRenderer
+} from "three";
 import { domainColors } from "../lib/domain";
+import type { CognopticonNode } from "../model/cognopticonNode";
 import type { ProjectDossier, ProjectRelationship } from "../types/cognopticon";
 
 const UNIVERSE_RADIUS = 500;
@@ -9,87 +44,113 @@ const CAMERA_FAR_DISTANCE = 1450;
 
 interface UniverseCanvasProps {
   projects: ProjectDossier[];
+  nodes: CognopticonNode[];
   relationships: ProjectRelationship[];
   selectedId: string;
   hoveredId: string | null;
   filteredIds: Set<string>;
   onSelect: (projectId: string) => void;
   onHover: (projectId: string | null) => void;
+  onScreenNodes?: (nodes: ProjectLabel[]) => void;
+  command?: GraphCommand | null;
+  labelsSuppressed?: boolean;
 }
 
-interface ProjectLabel {
+export interface ProjectLabel {
   id: string;
   name: string;
   x: number;
   y: number;
   visible: boolean;
   active: boolean;
+  readiness: number;
+  anomaly: number;
+  launchable: boolean;
+}
+
+export interface GraphCommand {
+  type: "fit" | "recenter";
+  nonce: number;
 }
 
 interface SceneRefs {
-  scene: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
-  renderer: THREE.WebGLRenderer;
-  graphGroup: THREE.Group;
-  projectGroup: THREE.Group;
-  linkGroup: THREE.Group;
-  starField: THREE.Points;
-  raycaster: THREE.Raycaster;
-  pointer: THREE.Vector2;
-  projectMeshes: Map<string, THREE.Mesh>;
-  target: THREE.Vector3;
-  desiredTarget: THREE.Vector3;
-  desiredPosition: THREE.Vector3;
-  panVelocity: THREE.Vector3;
+  scene: Scene;
+  camera: PerspectiveCamera;
+  renderer: WebGLRenderer;
+  graphGroup: Group;
+  projectGroup: Group;
+  linkGroup: Group;
+  starField: Points;
+  raycaster: Raycaster;
+  pointer: Vector2;
+  projectMeshes: Map<string, Object3D>;
+  target: Vector3;
+  desiredTarget: Vector3;
+  desiredPosition: Vector3;
+  panVelocity: Vector3;
   dollyVelocity: number;
-  rotationVelocity: THREE.Vector2;
+  rotationVelocity: Vector2;
+}
+
+interface OverlayZone {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
 }
 
 export function UniverseCanvas({
   projects,
+  nodes,
   relationships,
   selectedId,
   hoveredId,
   filteredIds,
   onSelect,
-  onHover
+  onHover,
+  onScreenNodes,
+  command,
+  labelsSuppressed = false
 }: UniverseCanvasProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const refs = useRef<SceneRefs | null>(null);
   const lastFlownSelectionRef = useRef<string | null>(null);
+  const lastPublishedHoverRef = useRef<string | null>(null);
+  const lastLabelsSignatureRef = useRef<string>("");
   const [labels, setLabels] = useState<ProjectLabel[]>([]);
 
   const projectPositions = useMemo(() => {
-    return new Map(projects.map((project, index) => [project.id, projectVector(project, index)]));
-  }, [projects]);
+    return layoutProjectSphere(projects, relationships);
+  }, [projects, relationships]);
 
-  const latestRef = useRef({ projects, projectPositions, selectedId, hoveredId, onSelect, onHover });
-  latestRef.current = { projects, projectPositions, selectedId, hoveredId, onSelect, onHover };
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const latestRef = useRef({ projects, projectPositions, selectedId, hoveredId, onSelect, onHover, onScreenNodes, nodeById });
+  latestRef.current = { projects, projectPositions, selectedId, hoveredId, onSelect, onHover, onScreenNodes, nodeById };
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#020407");
-    scene.fog = new THREE.FogExp2("#020407", 0.0018);
+    const scene = new Scene();
+    scene.background = new Color("#020407");
+    scene.fog = new FogExp2("#020407", 0.0018);
 
-    const camera = new THREE.PerspectiveCamera(48, 1, 1, 3800);
-    const renderer = new THREE.WebGLRenderer({
+    const camera = new PerspectiveCamera(48, 1, 1, 3800);
+    const renderer = new WebGLRenderer({
       antialias: true,
       alpha: false,
       powerPreference: "high-performance",
-      preserveDrawingBuffer: true
+      preserveDrawingBuffer: isCanvasCaptureEnabled()
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(canvasPixelRatio(latestRef.current.projects.length));
     renderer.domElement.className = "universe-canvas";
     renderer.domElement.dataset.testid = "universe-canvas";
     renderer.domElement.setAttribute("aria-label", "Spatial project universe");
     mount.appendChild(renderer.domElement);
 
-    const graphGroup = new THREE.Group();
-    const projectGroup = new THREE.Group();
-    const linkGroup = new THREE.Group();
+    const graphGroup = new Group();
+    const projectGroup = new Group();
+    const linkGroup = new Group();
     const starField = createStarField();
     scene.add(createNebulaShell());
     graphGroup.add(createBoundarySphere());
@@ -98,9 +159,9 @@ export function UniverseCanvas({
     graphGroup.add(linkGroup);
     graphGroup.add(projectGroup);
     scene.add(graphGroup);
-    scene.add(new THREE.AmbientLight("#c3efff", 1.1));
+    scene.add(new AmbientLight("#c3efff", 1.1));
 
-    const keyLight = new THREE.PointLight("#fff2bf", 1400, 3200);
+    const keyLight = new PointLight("#fff2bf", 1400, 3200);
     keyLight.position.set(-360, 460, 520);
     scene.add(keyLight);
 
@@ -112,15 +173,15 @@ export function UniverseCanvas({
       projectGroup,
       linkGroup,
       starField,
-      raycaster: new THREE.Raycaster(),
-      pointer: new THREE.Vector2(),
+      raycaster: new Raycaster(),
+      pointer: new Vector2(),
       projectMeshes: new Map(),
-      target: new THREE.Vector3(0, 0, 0),
-      desiredTarget: new THREE.Vector3(0, 0, 0),
-      desiredPosition: new THREE.Vector3(0, 0, 1220),
-      panVelocity: new THREE.Vector3(),
+      target: new Vector3(0, 0, 0),
+      desiredTarget: new Vector3(0, 0, 0),
+      desiredPosition: new Vector3(0, 0, 1220),
+      panVelocity: new Vector3(),
       dollyVelocity: 0,
-      rotationVelocity: new THREE.Vector2()
+      rotationVelocity: new Vector2()
     };
     camera.position.copy(refs.current.desiredPosition);
 
@@ -129,20 +190,28 @@ export function UniverseCanvas({
     let lastX = 0;
     let lastY = 0;
 
+    const publishHover = (projectId: string | null) => {
+      if (lastPublishedHoverRef.current === projectId) return;
+      lastPublishedHoverRef.current = projectId;
+      latestRef.current.onHover(projectId);
+    };
+
     const handlePointerDown = (event: PointerEvent) => {
       pointerActive = true;
       movedDuringDrag = false;
       lastX = event.clientX;
       lastY = event.clientY;
-      renderer.domElement.setPointerCapture(event.pointerId);
     };
 
     const handlePointerMove = (event: PointerEvent) => {
       const state = refs.current;
       if (!state) return;
-      const hitId = pickProjectFromState(state, event.clientX, event.clientY);
-      latestRef.current.onHover(hitId ?? null);
-      if (!pointerActive) return;
+      if (!pointerActive) {
+        const hitId = pickProjectFromState(state, event.clientX, event.clientY);
+        renderer.domElement.classList.toggle("is-hovering-node", Boolean(hitId));
+        publishHover(hitId ?? null);
+        return;
+      }
       const dx = event.clientX - lastX;
       const dy = event.clientY - lastY;
       lastX = event.clientX;
@@ -155,14 +224,14 @@ export function UniverseCanvas({
     const handlePointerUp = (event: PointerEvent) => {
       const state = refs.current;
       if (!state) return;
-      renderer.domElement.releasePointerCapture(event.pointerId);
       pointerActive = false;
       const hitId = pickProjectFromState(state, event.clientX, event.clientY);
       if (hitId && !movedDuringDrag) latestRef.current.onSelect(hitId);
     };
 
     const handlePointerLeave = () => {
-      latestRef.current.onHover(null);
+      renderer.domElement.classList.remove("is-hovering-node");
+      publishHover(null);
     };
 
     const handleWheel = (event: WheelEvent) => {
@@ -190,6 +259,7 @@ export function UniverseCanvas({
     resize();
 
     let frame = 0;
+    let labelTick = 0;
     const animate = (time: number) => {
       const state = refs.current;
       if (!state) return;
@@ -203,7 +273,8 @@ export function UniverseCanvas({
       updateObserverOrbit(state);
       updateCamera(state);
       state.renderer.render(state.scene, state.camera);
-      updateLabels(state);
+      labelTick += 1;
+      if (labelTick % 18 === 0) updateLabels(state);
       frame = requestAnimationFrame(animate);
     };
     frame = requestAnimationFrame(animate);
@@ -214,28 +285,53 @@ export function UniverseCanvas({
       const rect = mount.getBoundingClientRect();
       state.camera.aspect = Math.max(rect.width, 1) / Math.max(rect.height, 1);
       state.camera.updateProjectionMatrix();
+      state.renderer.setPixelRatio(canvasPixelRatio(latestRef.current.projects.length));
       state.renderer.setSize(Math.max(rect.width, 1), Math.max(rect.height, 1), false);
     }
 
     function updateLabels(state: SceneRefs) {
       const rect = state.renderer.domElement.getBoundingClientRect();
       const latest = latestRef.current;
-      const next = latest.projects.map((project, index) => {
+      const currentMount = mountRef.current;
+      const overlayZones = currentMount ? mobileOverlayControlZones(currentMount, rect) : [];
+      const projectedLabels = latest.projects.map((project, index) => {
         const position = latest.projectPositions.get(project.id) ?? projectVector(project, index);
         const worldPosition = position.clone().applyMatrix4(state.graphGroup.matrixWorld);
         const projected = worldPosition.clone().project(state.camera);
         const active = project.id === latest.selectedId || project.id === latest.hoveredId;
-        const centerNode = project.id === "cognopticon";
+        const node = latest.nodeById.get(project.id);
+        const centerNode = isCoreNode(project.id);
+        const nearCamera = state.camera.position.distanceTo(worldPosition) < 1280;
+        const rawX = (projected.x * 0.5 + 0.5) * rect.width;
+        const rawY = (-projected.y * 0.5 + 0.5) * rect.height;
+        const labelWidth = rect.width < 520 ? 132 : 190;
+        const labelPosition = avoidMobileOverlayControls(
+          clamp(rawX, 12, Math.max(12, rect.width - labelWidth - 12)),
+          clamp(rawY, 34, Math.max(34, rect.height - 18)),
+          labelWidth,
+          rect.width,
+          rect.height,
+          overlayZones
+        );
+        const baseVisible = !centerNode && projected.z < 1 && (active || nearCamera);
         return {
           id: project.id,
           name: project.name,
-          x: (projected.x * 0.5 + 0.5) * rect.width,
-          y: (-projected.y * 0.5 + 0.5) * rect.height,
-          visible: !centerNode && projected.z < 1 && (active || state.camera.position.distanceTo(worldPosition) < 1100),
-          active
+          x: labelPosition.x,
+          y: labelPosition.y,
+          visible: baseVisible && !labelPosition.occluded,
+          active,
+          readiness: node?.state.readiness ?? 0,
+          anomaly: node?.visual.anomalyIntensity ?? 0,
+          launchable: Boolean(node?.launch)
         };
       });
+      const next = declutterMobileLabels(projectedLabels, rect.width);
+      const signature = labelSignature(next);
+      if (signature === lastLabelsSignatureRef.current) return;
+      lastLabelsSignatureRef.current = signature;
       setLabels(next);
+      latest.onScreenNodes?.(next);
     }
 
     return () => {
@@ -267,8 +363,8 @@ export function UniverseCanvas({
     for (const [index, project] of projects.entries()) {
       const position = projectPositions.get(project.id) ?? projectVector(project, index);
       const visible = filteredIds.has(project.id);
-      const active = project.id === selectedId || project.id === hoveredId;
-      const mesh = createProjectBody(project, visible, active);
+      const active = project.id === selectedId;
+      const mesh = createProjectBody(project, nodeById.get(project.id), visible, active);
       mesh.position.copy(position);
       mesh.userData.projectId = project.id;
       state.projectGroup.add(mesh);
@@ -281,7 +377,9 @@ export function UniverseCanvas({
       if (!source || !target) continue;
       const sourceVisible = filteredIds.has(relationship.source);
       const targetVisible = filteredIds.has(relationship.target);
-      const active = relationship.source === selectedId || relationship.target === selectedId;
+      const active =
+        relationship.source === selectedId ||
+        relationship.target === selectedId;
       const sourceProject = projects.find((project) => project.id === relationship.source);
       const targetProject = projects.find((project) => project.id === relationship.target);
       state.linkGroup.add(createRelationshipFilament(
@@ -295,7 +393,7 @@ export function UniverseCanvas({
       ));
     }
 
-  }, [filteredIds, hoveredId, projectPositions, projects, relationships, selectedId]);
+  }, [filteredIds, nodeById, projectPositions, projects, relationships, selectedId]);
 
   useEffect(() => {
     const state = refs.current;
@@ -306,14 +404,35 @@ export function UniverseCanvas({
     lastFlownSelectionRef.current = selectedId;
   }, [filteredIds, projectPositions, selectedId]);
 
+  useEffect(() => {
+    const state = refs.current;
+    if (!state || !command) return;
+    if (command.type === "fit") {
+      resetUniverseView(state);
+      lastFlownSelectionRef.current = null;
+      return;
+    }
+    const selectedPosition = projectPositions.get(selectedId);
+    if (selectedPosition) {
+      flyToProject(state, selectedPosition);
+      lastFlownSelectionRef.current = selectedId;
+    }
+  }, [command, projectPositions, selectedId]);
+
   return (
     <div ref={mountRef} className="universe-frame three-universe">
       <div className="latent-haze" aria-hidden />
-      <div className="project-label-layer" aria-hidden>
-        {labels.filter((label) => label.id !== "cognopticon").map((label) => (
+      <div className="project-label-layer" data-suppressed={labelsSuppressed} aria-hidden>
+        {!labelsSuppressed && labels.filter((label) => !isCoreNode(label.id)).map((label) => (
           <span
             key={label.id}
-            className={label.active ? "project-label active" : "project-label"}
+            className={[
+              "project-label",
+              label.active ? "active" : "",
+              label.launchable ? "launchable" : "",
+              label.anomaly > 0.55 ? "anomalous" : ""
+            ].filter(Boolean).join(" ")}
+            data-readiness={label.readiness}
             style={{ transform: `translate3d(${label.x}px, ${label.y}px, 0)`, opacity: label.visible ? 1 : 0 }}
           >
             {label.name}
@@ -324,8 +443,42 @@ export function UniverseCanvas({
   );
 }
 
+function layoutProjectSphere(projects: ProjectDossier[], relationships: ProjectRelationship[]) {
+  const positions = new Map<string, Vector3>();
+  const nonCore = projects.filter((project) => !isCoreNode(project.id));
+  const communities = communityOrder(nonCore, relationships);
+  const communityAngles = new Map<string, number>();
+  communities.forEach((community, index) => {
+    communityAngles.set(community, (index / Math.max(communities.length, 1)) * Math.PI * 2);
+  });
+
+  for (const project of projects) {
+    if (isCoreNode(project.id)) {
+      positions.set(project.id, new Vector3(0, 0, 0));
+      continue;
+    }
+    const community = project.domain;
+    const communityIndex = nonCore.filter((item) => item.domain === community).findIndex((item) => item.id === project.id);
+    const baseAngle = communityAngles.get(community) ?? hashAngle(project.domain);
+    const hash = stableHash(project.id);
+    const relationshipPull = relationshipVector(project, relationships, projects);
+    const shell = 0.44 + project.substance * 0.28 + project.activity * 0.16;
+    const urgencyPull = project.decision === "build" ? -38 : project.decision === "triage" ? -12 : 26;
+    const radius = clamp(shell * UNIVERSE_RADIUS + urgencyPull, 250, UNIVERSE_RADIUS - 48);
+    const theta = baseAngle + communityIndex * 0.28 + Math.sin(hash * 0.013) * 0.19 + relationshipPull.x;
+    const phi = 0.54 + ((communityIndex * 0.58 + (hash % 37) / 37) % 2.12) + relationshipPull.y;
+    positions.set(project.id, new Vector3(
+      radius * Math.sin(phi) * Math.cos(theta),
+      radius * Math.cos(phi),
+      radius * Math.sin(phi) * Math.sin(theta)
+    ));
+  }
+
+  return positions;
+}
+
 function projectVector(project: ProjectDossier, index: number) {
-  if (project.id === "cognopticon") return new THREE.Vector3(0, 0, 0);
+  if (isCoreNode(project.id)) return new Vector3(0, 0, 0);
 
   const domainAngle: Record<ProjectDossier["domain"], number> = {
     visualization: 0.15,
@@ -342,20 +495,79 @@ function projectVector(project: ProjectDossier, index: number) {
   const radius = clamp(shell * UNIVERSE_RADIUS, 300, UNIVERSE_RADIUS - 52);
   const theta = domainAngle[project.domain] + Math.sin(normalizedIndex * 1.41) * 0.26 + (normalizedIndex % 3) * 0.16;
   const phi = 0.62 + ((normalizedIndex * 0.47) % 1.9);
-  return new THREE.Vector3(
+  return new Vector3(
     radius * Math.sin(phi) * Math.cos(theta),
     radius * Math.cos(phi),
     radius * Math.sin(phi) * Math.sin(theta)
   );
 }
 
-function createProjectBody(project: ProjectDossier, visible: boolean, active: boolean) {
-  const color = new THREE.Color(domainColors[project.domain]);
-  const warm = new THREE.Color("#fff2bf");
-  const isCenter = project.id === "cognopticon";
+function communityOrder(projects: ProjectDossier[], relationships: ProjectRelationship[]) {
+  const strengths = new Map<string, number>();
+  for (const project of projects) strengths.set(project.domain, strengths.get(project.domain) ?? 0);
+  for (const relationship of relationships) {
+    const source = projects.find((project) => project.id === relationship.source);
+    const target = projects.find((project) => project.id === relationship.target);
+    if (!source || !target) continue;
+    strengths.set(source.domain, (strengths.get(source.domain) ?? 0) + relationship.strength);
+    strengths.set(target.domain, (strengths.get(target.domain) ?? 0) + relationship.strength);
+  }
+  return [...strengths.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([domain]) => domain);
+}
+
+function relationshipVector(project: ProjectDossier, relationships: ProjectRelationship[], projects: ProjectDossier[]) {
+  const byId = new Map(projects.map((item) => [item.id, item]));
+  const related = relationships.filter((relationship) => relationship.source === project.id || relationship.target === project.id);
+  if (!related.length) return new Vector2(0, 0);
+  let thetaPull = 0;
+  let phiPull = 0;
+  for (const relationship of related) {
+    const otherId = relationship.source === project.id ? relationship.target : relationship.source;
+    const other = byId.get(otherId);
+    if (!other || isCoreNode(other.id)) continue;
+    thetaPull += Math.sin(hashAngle(other.domain) - hashAngle(project.domain)) * relationship.strength * 0.11;
+    phiPull += (other.activity - project.activity) * relationship.strength * 0.08;
+  }
+  return new Vector2(clamp(thetaPull, -0.24, 0.24), clamp(phiPull, -0.16, 0.16));
+}
+
+function hashAngle(value: string) {
+  return ((stableHash(value) % 1000) / 1000) * Math.PI * 2;
+}
+
+function isCoreNode(id: string) {
+  return id === "cognopticon" || id === "workspace-core";
+}
+
+function isCanvasCaptureEnabled() {
+  const meta = import.meta as ImportMeta & { env?: { MODE?: string } };
+  return navigator.webdriver || meta.env?.MODE === "test" || new URLSearchParams(window.location.search).has("captureCanvas");
+}
+
+function canvasPixelRatio(projectCount: number) {
+  const deviceRatio = window.devicePixelRatio || 1;
+  const cap = projectCount > 96 ? 1.15 : projectCount > 64 ? 1.35 : 1.75;
+  return Math.min(deviceRatio, cap);
+}
+
+function labelSignature(labels: ProjectLabel[]) {
+  return labels
+    .filter((label) => label.visible || label.active)
+    .map((label) => `${label.id}:${Math.round(label.x)}:${Math.round(label.y)}:${label.visible ? 1 : 0}:${label.active ? 1 : 0}`)
+    .join("|");
+}
+
+function createProjectBody(project: ProjectDossier, node: CognopticonNode | undefined, visible: boolean, active: boolean) {
+  const color = new Color(domainColors[project.domain]);
+  const warm = new Color("#fff2bf");
+  const isCenter = isCoreNode(project.id);
   const radius = nodeVisualRadius(project);
   const seed = stableHash(project.id);
-  const group = new THREE.Group();
+  const readiness = node?.state.readiness ?? estimateReadiness(project);
+  const anomaly = node?.visual.anomalyIntensity ?? 0;
+  const launchable = Boolean(node?.launch);
+  const readinessColor = readiness >= 84 ? new Color("#65ffb1") : readiness >= 68 ? new Color("#ffd166") : readiness >= 42 ? new Color("#ff9f6e") : new Color("#ff4d9d");
+  const group = new Group();
   group.userData.projectId = project.id;
   group.userData.spin = {
     x: (0.0008 + ((seed % 11) / 11) * 0.0022) * (seed % 2 === 0 ? 1 : -1),
@@ -363,37 +575,37 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
     z: (0.0003 + ((seed % 7) / 7) * 0.0016) * (seed % 5 === 0 ? -1 : 1)
   };
 
-  const sphere = new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 64, 40),
-    new THREE.MeshBasicMaterial({
+  const sphere = new Mesh(
+    new SphereGeometry(radius, 32, 20),
+    new MeshBasicMaterial({
       color,
       transparent: true,
-      opacity: visible ? 0.92 : 0.18,
-      blending: THREE.AdditiveBlending
+      opacity: visible ? 0.74 + readiness / 520 : 0.18,
+      blending: AdditiveBlending
     })
   );
   sphere.userData.projectId = project.id;
   group.add(sphere);
 
-  const innerCore = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 0.46, 32, 24),
-    new THREE.MeshBasicMaterial({
-      color: color.clone().lerp(new THREE.Color("#ffffff"), active ? 0.72 : 0.52),
+  const innerCore = new Mesh(
+    new SphereGeometry(radius * 0.46, 20, 14),
+    new MeshBasicMaterial({
+      color: color.clone().lerp(new Color("#ffffff"), active ? 0.72 : 0.52),
       transparent: true,
       opacity: active ? 0.96 : visible ? 0.78 : 0.12,
-      blending: THREE.AdditiveBlending,
+      blending: AdditiveBlending,
       depthWrite: false
     })
   );
   innerCore.userData.projectId = project.id;
   group.add(innerCore);
 
-  const fresnel = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 1.06, 64, 40),
-    new THREE.ShaderMaterial({
+  const fresnel = new Mesh(
+    new SphereGeometry(radius * 1.06, 32, 20),
+    new ShaderMaterial({
       uniforms: {
         glowColor: { value: active ? warm : color },
-        opacity: { value: active ? 0.95 : visible ? 0.58 : 0.12 }
+        opacity: { value: active ? 0.95 : visible ? 0.38 + readiness / 260 : 0.12 }
       },
       vertexShader: `
         varying vec3 vNormal;
@@ -412,20 +624,20 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
         }
       `,
       transparent: true,
-      blending: THREE.AdditiveBlending,
+      blending: AdditiveBlending,
       depthWrite: false
     })
   );
   fresnel.userData.projectId = project.id;
   group.add(fresnel);
 
-  const sprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({
+  const sprite = new Sprite(
+    new SpriteMaterial({
       map: glowTexture(),
       color,
       transparent: true,
       opacity: active ? 0.86 : visible ? 0.52 : 0.14,
-      blending: THREE.AdditiveBlending,
+      blending: AdditiveBlending,
       depthWrite: false
     })
   );
@@ -434,13 +646,13 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
   sprite.userData.projectId = project.id;
   group.add(sprite);
 
-  const coreLight = new THREE.Sprite(
-    new THREE.SpriteMaterial({
+  const coreLight = new Sprite(
+    new SpriteMaterial({
       map: glowTexture(),
       color: active ? "#fff2bf" : "#ffffff",
       transparent: true,
       opacity: active ? 0.5 : visible ? 0.28 : 0.05,
-      blending: THREE.AdditiveBlending,
+      blending: AdditiveBlending,
       depthWrite: false
     })
   );
@@ -449,13 +661,13 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
   coreLight.userData.projectId = project.id;
   group.add(coreLight);
 
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(radius * (isCenter ? 2.15 : 1.85), Math.max(0.5, radius * 0.018), 8, 128),
-    new THREE.MeshBasicMaterial({
+  const ring = new Mesh(
+    new TorusGeometry(radius * (isCenter ? 2.15 : 1.85), Math.max(0.5, radius * 0.018), 6, 72),
+    new MeshBasicMaterial({
       color: active ? "#fff2bf" : color,
       transparent: true,
       opacity: active || isCenter ? 0.62 : visible ? 0.1 : 0.025,
-      blending: THREE.AdditiveBlending,
+      blending: AdditiveBlending,
       depthWrite: false
     })
   );
@@ -464,13 +676,61 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
   ring.rotation.z = Math.PI * (((seed % 23) / 23) * 0.36);
   group.add(ring);
 
-  const polarRing = new THREE.Mesh(
-    new THREE.TorusGeometry(radius * (isCenter ? 1.58 : 1.38), Math.max(0.38, radius * 0.012), 8, 128),
-    new THREE.MeshBasicMaterial({
+  const readinessRing = new Mesh(
+    new TorusGeometry(radius * 2.34, Math.max(0.7, radius * 0.032), 8, 96),
+    new MeshBasicMaterial({
+      color: readinessColor,
+      transparent: true,
+      opacity: visible ? 0.14 + (readiness / 100) * 0.36 : 0.025,
+      blending: AdditiveBlending,
+      depthWrite: false
+    })
+  );
+  readinessRing.rotation.x = Math.PI * 0.5;
+  readinessRing.rotation.z = Math.PI * (((100 - readiness) / 100) * 0.4);
+  readinessRing.scale.setScalar(0.62 + readiness / 220);
+  group.add(readinessRing);
+
+  if (anomaly > 0.18) {
+    const shard = new Mesh(
+      new OctahedronGeometry(radius * (0.34 + anomaly * 0.5), 0),
+      new MeshBasicMaterial({
+        color: anomaly > 0.58 ? "#ff4d9d" : "#ffd166",
+        transparent: true,
+        opacity: visible ? 0.38 + anomaly * 0.44 : 0.08,
+        blending: AdditiveBlending,
+        depthWrite: false
+      })
+    );
+    shard.position.set(radius * 1.12, radius * 1.08, radius * 0.34);
+    shard.userData.projectId = project.id;
+    group.add(shard);
+  }
+
+  if (launchable) {
+    const beacon = new Mesh(
+      new ConeGeometry(radius * 0.28, radius * 0.86, 4),
+      new MeshBasicMaterial({
+        color: "#fff2bf",
+        transparent: true,
+        opacity: visible ? 0.82 : 0.1,
+        blending: AdditiveBlending,
+        depthWrite: false
+      })
+    );
+    beacon.position.set(-radius * 0.42, radius * 1.72, radius * 0.2);
+    beacon.rotation.z = Math.PI * 0.25;
+    beacon.userData.projectId = project.id;
+    group.add(beacon);
+  }
+
+  const polarRing = new Mesh(
+    new TorusGeometry(radius * (isCenter ? 1.58 : 1.38), Math.max(0.38, radius * 0.012), 6, 72),
+    new MeshBasicMaterial({
       color: active ? "#ffffff" : color,
       transparent: true,
       opacity: active || isCenter ? 0.34 : visible ? 0.045 : 0.015,
-      blending: THREE.AdditiveBlending,
+      blending: AdditiveBlending,
       depthWrite: false
     })
   );
@@ -479,12 +739,12 @@ function createProjectBody(project: ProjectDossier, visible: boolean, active: bo
   polarRing.rotation.z = Math.PI * (0.1 + ((seed % 19) / 19) * 0.52);
   group.add(polarRing);
 
-  return group as unknown as THREE.Mesh;
+  return group;
 }
 
 function createRelationshipFilament(
-  source: THREE.Vector3,
-  target: THREE.Vector3,
+  source: Vector3,
+  target: Vector3,
   relationship: ProjectRelationship,
   visible: boolean,
   active: boolean,
@@ -493,26 +753,26 @@ function createRelationshipFilament(
 ) {
   const direction = target.clone().sub(source);
   const distance = direction.length();
-  if (distance < 1) return new THREE.Group();
+  if (distance < 1) return new Group();
   direction.normalize();
   const start = source.clone().add(direction.clone().multiplyScalar(sourceRadius * 1.55));
   const end = target.clone().add(direction.clone().multiplyScalar(-targetRadius * 1.55));
   const middle = start.clone().lerp(end, 0.5);
-  const outward = middle.lengthSq() > 1 ? middle.clone().normalize() : new THREE.Vector3(0, 1, 0);
+  const outward = middle.lengthSq() > 1 ? middle.clone().normalize() : new Vector3(0, 1, 0);
   middle.add(outward.multiplyScalar(42 + relationship.strength * 94));
-  const curve = new THREE.QuadraticBezierCurve3(start, middle, end);
-  const points = curve.getPoints(72);
+  const curve = new QuadraticBezierCurve3(start, middle, end);
+  const points = curve.getPoints(34);
   const alpha = new Float32Array(points.length);
   for (let index = 0; index < points.length; index += 1) {
     const t = index / (points.length - 1);
     const endFade = Math.min(1, Math.min(t, 1 - t) / 0.22);
     alpha[index] = Math.pow(endFade, 1.45);
   }
-  const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  geometry.setAttribute("lineAlpha", new THREE.BufferAttribute(alpha, 1));
-  const material = new THREE.ShaderMaterial({
+  const geometry = new BufferGeometry().setFromPoints(points);
+  geometry.setAttribute("lineAlpha", new BufferAttribute(alpha, 1));
+  const material = new ShaderMaterial({
     uniforms: {
-      color: { value: new THREE.Color(active ? "#fff0b8" : "#9bd6e2") },
+      color: { value: new Color(active ? "#fff0b8" : relationshipColor(relationship)) },
       opacity: { value: active ? 0.76 : visible ? 0.32 : 0.06 }
     },
     vertexShader: `
@@ -532,15 +792,35 @@ function createRelationshipFilament(
       }
     `,
     transparent: true,
-    blending: THREE.AdditiveBlending,
+    blending: AdditiveBlending,
     depthWrite: false
   });
-  return new THREE.Line(geometry, material);
+  return new Line(geometry, material);
 }
 
 function nodeVisualRadius(project?: ProjectDossier) {
   if (!project) return 18;
   return project.id === "cognopticon" ? 31 : 8 + project.substance * 12;
+}
+
+function relationshipColor(relationship: ProjectRelationship) {
+  if (relationship.kind === "supersedes") return "#ff79c9";
+  if (relationship.kind === "agent_target") return "#ffd166";
+  if (relationship.kind === "archive_source") return "#d5c6ff";
+  if (relationship.kind === "depends_on") return "#7bdcff";
+  if (relationship.kind === "reference") return "#80e4c9";
+  return relationship.strength > 0.72 ? "#65ffb1" : "#9bd6e2";
+}
+
+function estimateReadiness(project: ProjectDossier) {
+  const evidenceText = project.evidence.map((item) => `${item.label} ${item.path}`).join(" ").toLowerCase();
+  let score = 20 + project.activity * 18 + project.substance * 18;
+  if (/readme/.test(evidenceText)) score += 12;
+  if (/package\.json|pyproject|cargo\.toml|go\.mod|vite|tsconfig/.test(evidenceText)) score += 14;
+  if (/test|spec|playwright|vitest|pytest/.test(evidenceText)) score += 16;
+  if (project.tags.some((tag) => tag.includes("launch"))) score += 14;
+  if (project.health === "fragile" || project.health === "stalled") score -= 12;
+  return clamp(Math.round(score), 0, 100);
 }
 
 function stableHash(value: string) {
@@ -552,42 +832,42 @@ function stableHash(value: string) {
 }
 
 function createBoundarySphere() {
-  const group = new THREE.Group();
+  const group = new Group();
 
-  const shell = new THREE.Mesh(
-    new THREE.SphereGeometry(UNIVERSE_RADIUS, 96, 48),
-    new THREE.MeshBasicMaterial({
+  const shell = new Mesh(
+    new SphereGeometry(UNIVERSE_RADIUS, 64, 32),
+    new MeshBasicMaterial({
       color: "#74d8ff",
       transparent: true,
       opacity: 0.028,
       wireframe: true,
-      blending: THREE.AdditiveBlending,
+      blending: AdditiveBlending,
       depthWrite: false
     })
   );
   group.add(shell);
 
-  const ringMaterial = new THREE.MeshBasicMaterial({
+  const ringMaterial = new MeshBasicMaterial({
     color: "#f98ad4",
     transparent: true,
     opacity: 0.12,
-    blending: THREE.AdditiveBlending,
+    blending: AdditiveBlending,
     depthWrite: false
   });
-  const equator = new THREE.Mesh(new THREE.TorusGeometry(UNIVERSE_RADIUS, 0.9, 8, 192), ringMaterial.clone());
+  const equator = new Mesh(new TorusGeometry(UNIVERSE_RADIUS, 0.9, 6, 128), ringMaterial.clone());
   equator.rotation.x = Math.PI / 2;
   group.add(equator);
 
-  const meridian = new THREE.Mesh(new THREE.TorusGeometry(UNIVERSE_RADIUS, 0.72, 8, 192), ringMaterial.clone());
+  const meridian = new Mesh(new TorusGeometry(UNIVERSE_RADIUS, 0.72, 6, 128), ringMaterial.clone());
   meridian.rotation.y = Math.PI / 2;
-  meridian.material.color = new THREE.Color("#80e4c9");
+  meridian.material.color = new Color("#80e4c9");
   meridian.material.opacity = 0.095;
   group.add(meridian);
 
-  const tilted = new THREE.Mesh(new THREE.TorusGeometry(UNIVERSE_RADIUS * 0.72, 0.62, 8, 160), ringMaterial.clone());
+  const tilted = new Mesh(new TorusGeometry(UNIVERSE_RADIUS * 0.72, 0.62, 6, 96), ringMaterial.clone());
   tilted.rotation.x = Math.PI * 0.19;
   tilted.rotation.y = Math.PI * 0.34;
-  tilted.material.color = new THREE.Color("#fff2bf");
+  tilted.material.color = new Color("#fff2bf");
   tilted.material.opacity = 0.08;
   group.add(tilted);
 
@@ -595,85 +875,85 @@ function createBoundarySphere() {
 }
 
 function createStarField() {
-  const count = 2600;
+  const count = 1200;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   for (let index = 0; index < count; index += 1) {
     const radius = 420 + Math.random() * 1500;
     const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(THREE.MathUtils.randFloatSpread(2));
+    const phi = Math.acos(MathUtils.randFloatSpread(2));
     positions[index * 3] = radius * Math.sin(phi) * Math.cos(theta);
     positions[index * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
     positions[index * 3 + 2] = radius * Math.cos(phi);
-    const tint = new THREE.Color(index % 7 === 0 ? "#ffe9a6" : index % 5 === 0 ? "#f59bd8" : "#9fd7ff");
+    const tint = new Color(index % 7 === 0 ? "#ffe9a6" : index % 5 === 0 ? "#f59bd8" : "#9fd7ff");
     colors[index * 3] = tint.r;
     colors[index * 3 + 1] = tint.g;
     colors[index * 3 + 2] = tint.b;
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  return new THREE.Points(
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new BufferAttribute(colors, 3));
+  return new Points(
     geometry,
-    new THREE.PointsMaterial({
+    new PointsMaterial({
       size: 3.8,
       map: pointTexture(),
       vertexColors: true,
       transparent: true,
       opacity: 0.88,
       depthWrite: false,
-      blending: THREE.AdditiveBlending
+      blending: AdditiveBlending
     })
   );
 }
 
 function createNebulaShell() {
-  const geometry = new THREE.SphereGeometry(1800, 64, 32);
-  const material = new THREE.MeshBasicMaterial({
+  const geometry = new SphereGeometry(1800, 40, 20);
+  const material = new MeshBasicMaterial({
     color: "#334566",
     transparent: true,
     opacity: 0.18,
-    side: THREE.BackSide,
-    blending: THREE.AdditiveBlending,
+    side: BackSide,
+    blending: AdditiveBlending,
     depthWrite: false
   });
-  return new THREE.Mesh(geometry, material);
+  return new Mesh(geometry, material);
 }
 
 function createLatentCloud() {
-  const count = 420;
+  const count = 180;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
   for (let index = 0; index < count; index += 1) {
     const angle = index * 0.29;
     const radius = 80 + index * 2.2;
-    positions[index * 3] = Math.cos(angle) * radius + THREE.MathUtils.randFloatSpread(120);
-    positions[index * 3 + 1] = Math.sin(angle * 0.72) * 180 + THREE.MathUtils.randFloatSpread(140);
-    positions[index * 3 + 2] = Math.sin(angle) * radius * 0.75 + THREE.MathUtils.randFloatSpread(180);
-    const tint = new THREE.Color(index % 3 === 0 ? "#f98ad4" : index % 3 === 1 ? "#80e4c9" : "#81d4ff");
+    positions[index * 3] = Math.cos(angle) * radius + MathUtils.randFloatSpread(120);
+    positions[index * 3 + 1] = Math.sin(angle * 0.72) * 180 + MathUtils.randFloatSpread(140);
+    positions[index * 3 + 2] = Math.sin(angle) * radius * 0.75 + MathUtils.randFloatSpread(180);
+    const tint = new Color(index % 3 === 0 ? "#f98ad4" : index % 3 === 1 ? "#80e4c9" : "#81d4ff");
     colors[index * 3] = tint.r;
     colors[index * 3 + 1] = tint.g;
     colors[index * 3 + 2] = tint.b;
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  return new THREE.Points(
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new BufferAttribute(colors, 3));
+  return new Points(
     geometry,
-    new THREE.PointsMaterial({
+    new PointsMaterial({
       size: 12,
       map: pointTexture(),
       vertexColors: true,
       transparent: true,
       opacity: 0.12,
       depthWrite: false,
-      blending: THREE.AdditiveBlending
+      blending: AdditiveBlending
     })
   );
 }
 
-let cachedGlowTexture: THREE.Texture | null = null;
-let cachedPointTexture: THREE.Texture | null = null;
+let cachedGlowTexture: Texture | null = null;
+let cachedPointTexture: Texture | null = null;
 
 function glowTexture() {
   if (cachedGlowTexture) return cachedGlowTexture;
@@ -690,7 +970,7 @@ function glowTexture() {
     context.fillStyle = gradient;
     context.fillRect(0, 0, 128, 128);
   }
-  cachedGlowTexture = new THREE.CanvasTexture(canvas);
+  cachedGlowTexture = new CanvasTexture(canvas);
   return cachedGlowTexture;
 }
 
@@ -708,7 +988,7 @@ function pointTexture() {
     context.fillStyle = gradient;
     context.fillRect(0, 0, 64, 64);
   }
-  cachedPointTexture = new THREE.CanvasTexture(canvas);
+  cachedPointTexture = new CanvasTexture(canvas);
   return cachedPointTexture;
 }
 
@@ -730,7 +1010,7 @@ function updateCamera(state: SceneRefs) {
 function updateObserverOrbit(state: SceneRefs) {
   if (Math.abs(state.rotationVelocity.x) <= 0.00001 && Math.abs(state.rotationVelocity.y) <= 0.00001) return;
   const offset = state.desiredPosition.clone().sub(state.desiredTarget);
-  const spherical = new THREE.Spherical().setFromVector3(offset);
+  const spherical = new Spherical().setFromVector3(offset);
   spherical.theta -= state.rotationVelocity.x;
   spherical.phi = clamp(spherical.phi - state.rotationVelocity.y, 0.18, Math.PI - 0.18);
   offset.setFromSpherical(spherical);
@@ -766,8 +1046,8 @@ function panObserver(state: SceneRefs, dx: number, dy: number) {
   const distance = state.desiredPosition.distanceTo(state.desiredTarget);
   const scale = clamp(distance / 860, 0.22, 1.55);
   const forward = state.desiredTarget.clone().sub(state.desiredPosition).normalize();
-  const right = new THREE.Vector3().crossVectors(forward, state.camera.up).normalize();
-  const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+  const right = new Vector3().crossVectors(forward, state.camera.up).normalize();
+  const up = new Vector3().crossVectors(right, forward).normalize();
   const movement = right.multiplyScalar(-dx * scale * 0.62).add(up.multiplyScalar(dy * scale * 0.62));
   state.panVelocity.add(movement);
   state.panVelocity.multiplyScalar(0.88);
@@ -780,7 +1060,7 @@ function applyDolly(state: SceneRefs, amount: number) {
   const change = nextDistance - distance;
   state.desiredPosition.add(forward.multiplyScalar(-change));
   if (nextDistance > 980) {
-    const overview = new THREE.Vector3(0, 0, 0);
+    const overview = new Vector3(0, 0, 0);
     const amountToCenter = Math.min(1, (nextDistance - 980) / 360);
     const shift = overview.sub(state.desiredTarget).multiplyScalar(amountToCenter * 0.5);
     state.desiredTarget.add(shift);
@@ -798,7 +1078,7 @@ function pickProjectFromState(state: SceneRefs, clientX: number, clientY: number
   return hit?.object.userData.projectId ?? hit?.object.parent?.userData.projectId;
 }
 
-function flyToProject(state: SceneRefs, position: THREE.Vector3) {
+function flyToProject(state: SceneRefs, position: Vector3) {
   const currentDirection = state.desiredPosition.clone().sub(state.desiredTarget);
   if (currentDirection.lengthSq() < 1) currentDirection.set(0, 80, 520);
   currentDirection.normalize();
@@ -810,12 +1090,23 @@ function flyToProject(state: SceneRefs, position: THREE.Vector3) {
   state.rotationVelocity.set(0, 0);
 }
 
-function disposeGroup(group: THREE.Group) {
+function resetUniverseView(state: SceneRefs) {
+  state.desiredTarget.set(0, 0, 0);
+  state.target.set(0, 0, 0);
+  state.desiredPosition.set(0, 0, 1220);
+  state.camera.position.set(0, 0, 1220);
+  state.panVelocity.set(0, 0, 0);
+  state.dollyVelocity = 0;
+  state.rotationVelocity.set(0, 0);
+  state.camera.lookAt(state.target);
+}
+
+function disposeGroup(group: Group) {
   group.traverse((object) => disposeObject(object));
 }
 
-function disposeObject(object: THREE.Object3D) {
-  const maybeMesh = object as THREE.Mesh;
+function disposeObject(object: Object3D) {
+  const maybeMesh = object as Mesh;
   maybeMesh.geometry?.dispose();
   const material = maybeMesh.material;
   if (Array.isArray(material)) material.forEach((item) => item.dispose());
@@ -824,4 +1115,107 @@ function disposeObject(object: THREE.Object3D) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function mobileOverlayControlZones(mount: HTMLElement, canvasRect: DOMRect): OverlayZone[] {
+  if (canvasRect.width > 520) return [];
+  const stage = mount.parentElement;
+  if (!stage) return [];
+  const selectors = [
+    ".queue-overlay",
+    ".graph-controls",
+    ".filter-trigger",
+    ".graph-instrument",
+    ".mobile-action-dock",
+    ".filter-popover",
+    ".queue-popover"
+  ];
+  return selectors.flatMap((selector) => {
+    const element = stage.querySelector(selector);
+    if (!element) return [];
+    const style = window.getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return [];
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 1 || rect.height <= 1) return [];
+    const padding = selector === ".graph-instrument" || selector === ".mobile-action-dock" ? 10 : 8;
+    return [{
+      left: clamp(rect.left - canvasRect.left - padding, 0, canvasRect.width),
+      right: clamp(rect.right - canvasRect.left + padding, 0, canvasRect.width),
+      top: clamp(rect.top - canvasRect.top - padding, 0, canvasRect.height),
+      bottom: clamp(rect.bottom - canvasRect.top + padding, 0, canvasRect.height)
+    }];
+  });
+}
+
+function avoidMobileOverlayControls(x: number, y: number, labelWidth: number, canvasWidth: number, canvasHeight: number, reserved: OverlayZone[]) {
+  if (canvasWidth > 520 || reserved.length === 0) return { x, y, occluded: false };
+  const labelHeight = 42;
+  const labelBottomOffset = 16;
+  const gap = 8;
+  let nextY = clamp(y, labelHeight + labelBottomOffset + gap, Math.max(labelHeight + labelBottomOffset + gap, canvasHeight - 18));
+
+  for (let attempt = 0; attempt < reserved.length + 1; attempt += 1) {
+    const label = labelRect(x, nextY, labelWidth, labelHeight, labelBottomOffset);
+    const collision = reserved.find((zone) => rectanglesOverlap(label, zone));
+    if (!collision) return { x, y: nextY, occluded: false };
+    const zoneCenterY = (collision.top + collision.bottom) / 2;
+    if (zoneCenterY < canvasHeight / 2) {
+      nextY = collision.bottom + labelHeight + labelBottomOffset + gap;
+    } else {
+      nextY = collision.top + labelBottomOffset - gap;
+    }
+    nextY = clamp(nextY, labelHeight + labelBottomOffset + gap, Math.max(labelHeight + labelBottomOffset + gap, canvasHeight - 18));
+  }
+
+  return { x, y: nextY, occluded: true };
+}
+
+function declutterMobileLabels(labels: ProjectLabel[], canvasWidth: number) {
+  if (canvasWidth > 520) return labels;
+  const accepted: Array<{ label: ProjectLabel; rect: OverlayZone }> = [];
+  const visibility = new Map(labels.map((label) => [label.id, label.visible]));
+  const candidates = labels
+    .filter((label) => label.visible)
+    .sort((a, b) => mobileLabelPriority(b) - mobileLabelPriority(a) || a.name.localeCompare(b.name));
+
+  for (const label of candidates) {
+    const rect = labelRect(label.x, label.y, 132, 42, 16);
+    const padded = {
+      left: rect.left - 6,
+      right: rect.right + 6,
+      top: rect.top - 4,
+      bottom: rect.bottom + 4
+    };
+    const collides = accepted.some((item) => rectanglesOverlap(padded, item.rect));
+    const withinBudget = accepted.length < 5 || label.active;
+    visibility.set(label.id, !collides && withinBudget);
+    if (!collides && withinBudget) accepted.push({ label, rect: padded });
+  }
+
+  return labels.map((label) => ({ ...label, visible: visibility.get(label.id) ?? label.visible }));
+}
+
+function mobileLabelPriority(label: ProjectLabel) {
+  return (label.active ? 1000 : 0)
+    + (label.launchable ? 120 : 0)
+    + (label.anomaly > 0.55 ? 90 : 0)
+    + Math.round(label.readiness)
+    - Math.round(label.y / 10);
+}
+
+function labelRect(x: number, y: number, labelWidth: number, labelHeight: number, labelBottomOffset: number) {
+  return {
+    left: x - 6,
+    right: x - 6 + labelWidth,
+    top: y - labelHeight - labelBottomOffset,
+    bottom: y - labelBottomOffset
+  };
+}
+
+function rectanglesOverlap(
+  a: { left: number; right: number; top: number; bottom: number },
+  b: { left: number; right: number; top: number; bottom: number }
+) {
+  return Math.min(a.right, b.right) > Math.max(a.left, b.left)
+    && Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top);
 }

@@ -5,5 +5,9 @@ playwright-report/
 .vite/
 .DS_Store
 *.log
+_cognopticon_safety/
 missions/
 workspace-scan.json
+.cognopticon/
+public/workspace.json
+src/data/demo-workspace.json

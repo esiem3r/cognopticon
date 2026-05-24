@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a product improvement with local-first safety context.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please keep examples sanitized. Do not include `.cognopticon/` state, daemon tokens, private paths, generated local workspace data, or private screenshots.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should Cognopticon help a local user accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Describe the workflow or friction without sharing private data.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - Graph UX
+        - Workspace analysis
+        - Agency kernel
+        - Daemon safety
+        - Local profile pipeline
+        - Public release hygiene
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety considerations
+      description: Note any private-data, daemon-authority, or agent-handoff implications.
+    validations:
+      required: true

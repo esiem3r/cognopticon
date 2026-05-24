@@ -3,16 +3,36 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "description": "A local spatial observatory for project dossiers, relationships, and agent mission briefs.",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "lint": "eslint .",
-    "test": "vitest run src/lib/domain.test.ts src/lib/canvas.test.ts src/lib/validateData.test.ts",
+    "audit:deps": "npm audit --audit-level=moderate",
+    "test": "vitest run src/lib/domain.test.ts src/lib/canvas.test.ts src/lib/validateData.test.ts src/lib/workspacePipeline.test.ts src/model/model.test.ts src/field/fieldModel.test.ts src/agency/agencyKernel.test.ts src/agency/actionBus.test.ts src/agency/agentRuntime.test.ts src/services/daemonClient.test.ts src/components/cognition/CognitionRail.test.ts daemon/src/index.test.js",
+    "test:daemon": "vitest run daemon/src/index.test.js",
     "test:e2e": "playwright test",
     "validate:data": "node scripts/validate-data.mjs",
-    "scan": "node scripts/scan-workspace.mjs"
+    "validate:release": "node scripts/validate-release-hygiene.mjs",
+    "validate:community": "node scripts/validate-community-health.mjs",
+    "validate:package": "node scripts/validate-package-artifact.mjs",
+    "validate:payload": "node scripts/validate-release-payload.mjs",
+    "validate:local": "node scripts/validate-local-pipeline.mjs",
+    "scan": "node scripts/scan-workspace.mjs --profile-output",
+    "analyze": "node scripts/analyze-workspace.mjs",
+    "enrich:packets": "node scripts/enrichment-packets.mjs",
+    "lifecycle:packet": "node scripts/lifecycle-loop.mjs",
+    "release:checkpoint": "node scripts/release-checkpoint.mjs",
+    "sanitize:demo": "node scripts/sanitize-demo-workspace.mjs",
+    "local:init": "node scripts/local-init.mjs",
+    "local": "npm run build && node daemon/src/index.js",
+    "check": "node scripts/run-check.mjs"
   },
   "dependencies": {
     "@types/three": "^0.184.1",
@@ -36,6 +56,6 @@
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
     "typescript-eslint": "^8.18.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.7"
   }
 }
