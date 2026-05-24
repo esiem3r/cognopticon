@@ -81,6 +81,21 @@ test("mission approval stages work without daemon dispatch", async ({ page }) =>
   await expect(page.getByLabel("Runtime event feed")).not.toContainText(/Dispatching|Daemon job/i);
 });
 
+test("malformed mission packet blocks official drawer delivery controls", async ({ page }) => {
+  await page.goto("/tests/fixtures/mission-drawer-harness.html?mode=invalid");
+  await expect(page.getByLabel("Generated mission brief")).toContainText("No structured packet.");
+  await expect(page.getByLabel("Mission approval state")).toContainText("blocked");
+  await expect(page.getByLabel("Mission approval state")).toContainText("Mission packet JSON block is missing");
+
+  const download = page.locator(".download-button", { hasText: "Download Brief" });
+  await expect(download).toHaveAttribute("aria-disabled", "true");
+  await expect(download).toHaveAttribute("tabindex", "-1");
+  expect(await download.getAttribute("href")).toBeNull();
+
+  await expect(page.getByRole("button", { name: "Copy Brief" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Mark Reviewed" })).toBeDisabled();
+});
+
 test("runtime rail explains daemon failures with action provenance", async ({ page }) => {
   await page.addInitScript(() => {
     const originalFetch = window.fetch.bind(window);
