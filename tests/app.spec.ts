@@ -23,8 +23,10 @@ test("renders the project universe and opens a mission brief", async ({ page }) 
 
   await page.getByRole("button", { name: "Generate Mission", exact: true }).first().click();
   await expect(page.getByLabel("Generated mission brief")).toContainText("# Mission Brief:");
+  await expect(page.getByLabel("Generated mission brief")).toContainText("## Handoff Packet");
   await expect(page.getByLabel("Mission approval state")).toContainText(/awaiting_approval|Approve/);
   await expect(page.getByRole("link", { name: "Download Brief" })).toHaveAttribute("download", /.*-mission\.md/);
+  await expect(page.getByRole("link", { name: "Download Brief" })).toHaveAttribute("href", /^blob:/);
 });
 
 test("search focuses a local project dossier", async ({ page }) => {
@@ -52,6 +54,7 @@ test("graph-native cockpit and cognition rail generate proposal missions", async
   await expect(page.getByLabel("Cognition rail")).toContainText("Missions");
   await page.locator(".proposal-card").first().getByRole("button", { name: "Mission" }).click();
   await expect(page.getByLabel("Generated mission brief")).toContainText("# Mission:");
+  await expect(page.getByLabel("Generated mission brief")).toContainText('"source": "proposal"');
 });
 
 test("daemon offline state exposes useful fallback actions", async ({ page }) => {

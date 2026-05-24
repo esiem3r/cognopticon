@@ -7,6 +7,7 @@ import type {
   ProjectRelationship,
   ProjectStatus
 } from "../types/cognopticon";
+import { defaultExcludedFiles, renderMissionPacketMarkdown, verificationCommandsFromSignals } from "./missionPacket";
 
 export const domainLabels: Record<ProjectDomain, string> = {
   agentics: "Agentics",
@@ -91,53 +92,54 @@ export function generateMissionBrief(
   generatedAt = new Date().toISOString()
 ): MissionBrief {
   const related = relatedProjects(project.id, projects, relationships);
-  const markdown = [
-    `# Mission Brief: ${project.name}`,
-    "",
-    `Generated: ${generatedAt}`,
-    "",
-    "## Goal",
-    project.nextMove,
-    "",
-    "## Project Decision",
-    `${decisionLabels[project.decision]}: ${project.decisionRationale}`,
-    "",
-    "## Next Review",
-    project.nextReview,
-    "",
-    "## Context",
-    project.purpose,
-    "",
-    "## Why It Matters",
-    project.whyItMatters,
-    "",
-    "## Current Friction",
-    project.currentFriction,
-    "",
-    "## Allowed Working Area",
-    `- ${project.path}`,
-    ...project.evidence.map((item) => `- ${item.path}`),
-    "",
-    "## Constraints",
-    ...project.missionConstraints.map((constraint) => `- ${constraint}`),
-    "",
-    "## Related Projects",
-    ...(related.length
-      ? related.map((item) => `- ${item.project.name}: ${item.relationship.label}`)
-      : ["- None recorded yet."]),
-    "",
-    "## Acceptance Criteria",
-    "- The agent states the intended change before editing.",
-    "- The agent keeps work scoped to the allowed working area unless explicitly redirected.",
-    "- The agent produces a concrete verification result or clearly explains why verification could not run.",
-    "- The final handoff names changed files, remaining risks, and the next smallest useful move.",
-    "",
-    "## First Actions",
-    "- Inspect the project root and current git state.",
-    "- Read the nearest README, project config, and existing tests.",
-    "- Identify the smallest change that directly advances the goal.",
-    "- Stop and ask only if the goal conflicts with local evidence."
-  ].join("\n");
+  const relevantFiles = [project.path, ...project.evidence.map((item) => item.path)];
+  const signals = project.analysis?.signals ?? project.evidence.map((item) => item.label);
+  const verificationCommands = verificationCommandsFromSignals(signals, project.evidence.map((item) => item.path));
+  const markdown = renderMissionPacketMarkdown({
+    id: `mission:${project.id}:${generatedAt}`,
+    source: "project",
+    projectIds: [project.id],
+    title: `Mission Brief: ${project.name}`,
+    objective: project.nextMove,
+    generatedAt,
+    contextSummary: project.purpose,
+    currentState: `${decisionLabels[project.decision]}: ${project.decisionRationale}`,
+    relevantFiles,
+    excludedFiles: defaultExcludedFiles(),
+    knownRisks: [project.currentFriction, ...(project.analysis?.layoutReasons?.map((item) => item.detail) ?? [])],
+    constraints: project.missionConstraints,
+    acceptanceCriteria: [
+      "The agent states the intended change before editing.",
+      "The agent keeps work scoped to the allowed working area unless explicitly redirected.",
+      "The agent produces a concrete verification result or clearly explains why verification could not run.",
+      "The final handoff names changed files, remaining risks, and the next smallest useful move."
+    ],
+    firstActions: [
+      "Inspect the project root and current git state.",
+      "Read the nearest README, project config, and existing tests.",
+      "Identify the smallest change that directly advances the goal.",
+      "Stop and ask only if the goal conflicts with local evidence."
+    ],
+    verificationCommands,
+    authority: {
+      mayRead: relevantFiles,
+      mayEdit: [],
+      mayRun: verificationCommands,
+      requiresApproval: ["file edits", "commands beyond listed verification", "network access", "git commits or pushes"]
+    },
+    sections: [
+      { heading: "Why It Matters", body: project.whyItMatters },
+      { heading: "Current Friction", body: project.currentFriction },
+      { heading: "Project Decision", body: `${decisionLabels[project.decision]}: ${project.decisionRationale}` },
+      { heading: "Next Review", body: project.nextReview },
+      {
+        heading: "Related Projects",
+        body: related.length
+          ? related.map((item) => `- ${item.project.name}: ${item.relationship.label}`)
+          : ["- None recorded yet."]
+      }
+    ]
+  });
 
   return { projectId: project.id, markdown, generatedAt };
 }
