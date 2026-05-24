@@ -167,6 +167,67 @@ test("launch port run status replaces previous copy feedback", async ({ page }) 
   await expect(launchPort.getByRole("status")).not.toContainText("Command copied:");
 });
 
+test("action wheel copies a path fallback without daemon dispatch", async ({ page }) => {
+  await page.addInitScript(() => {
+    const testWindow = window as typeof window & { __daemonMutationCalls?: string[] };
+    testWindow.__daemonMutationCalls = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (/\/api\/(?:jobs|actions|orchestrator)/.test(url)) testWindow.__daemonMutationCalls?.push(url);
+      return originalFetch(input, init);
+    };
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          window.localStorage.setItem("cognopticon:test:copied-path", text);
+          return Promise.resolve();
+        }
+      }
+    });
+  });
+
+  await page.goto("/?daemon=off");
+  await page.getByLabel("Search projects").fill("launchable");
+  const actions = page.getByLabel("Launchable Tool actions");
+  const copyPath = actions.getByRole("button", { name: "Copy Path" });
+  const daemonCallsBefore = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+
+  await copyPath.click();
+  await expect(copyPath).toHaveText("Copy Path");
+  await expect(actions.getByRole("status")).toContainText("Path copied.");
+  const firstStatusText = await actions.getByRole("status").textContent();
+  await copyPath.click();
+  await expect(actions.getByRole("status")).toContainText("Attempt 2.");
+  const secondStatusText = await actions.getByRole("status").textContent();
+  expect(secondStatusText).not.toBe(firstStatusText);
+  const daemonCallsAfter = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+  expect(daemonCallsAfter).toBe(daemonCallsBefore);
+  const copied = await page.evaluate(() => window.localStorage.getItem("cognopticon:test:copied-path"));
+  expect(copied).toBe("/demo/workspace/tools/launchable-tool");
+});
+
+test("action wheel reports clipboard failure without changing the button label", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () => Promise.reject(new Error("denied"))
+      }
+    });
+  });
+
+  await page.goto("/?daemon=off");
+  await page.getByLabel("Search projects").fill("launchable");
+  const actions = page.getByLabel("Launchable Tool actions");
+  const copyPath = actions.getByRole("button", { name: "Copy Path" });
+
+  await copyPath.click();
+  await expect(copyPath).toHaveText("Copy Path");
+  await expect(actions.getByRole("status")).toContainText("Clipboard unavailable. Open Detail to inspect the path.");
+});
+
 test("orchestrator access arms the visualizer without exposing workers", async ({ page }) => {
   await page.goto("/?daemon=off");
   await page.getByRole("button", { name: "Start Orchestrator" }).click();
