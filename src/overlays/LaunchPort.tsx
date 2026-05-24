@@ -1,12 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { DaemonStatus } from "../agency/types";
+import { useAnnouncementStatus } from "../hooks/useAnnouncementStatus";
 import type { CognopticonNode } from "../model/cognopticonNode";
 import { formatManualLaunchCommand } from "./launchCommand";
-
-type CopyStatus = {
-  message: string;
-  nonce: number;
-};
 
 export function LaunchPort({
   node,
@@ -23,13 +19,13 @@ export function LaunchPort({
 }) {
   const command = node.launch?.commands?.[0];
   const manualCommandText = command ? formatManualLaunchCommand(command) : "";
-  const [copyStatus, setCopyStatus] = useState<CopyStatus>({ message: "", nonce: 0 });
+  const { status: copyStatus, announce: announceCopyStatus, reset: resetCopyStatus } = useAnnouncementStatus();
   useEffect(() => {
     resetCopyStatus();
-  }, [node.id, manualCommandText]);
+  }, [node.id, manualCommandText, resetCopyStatus]);
   useEffect(() => {
     if (runStatus) resetCopyStatus();
-  }, [runStatus]);
+  }, [runStatus, resetCopyStatus]);
 
   if (!node.launch) {
     return (
@@ -46,16 +42,10 @@ export function LaunchPort({
     try {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
       await navigator.clipboard.writeText(manualCommandText);
-      updateCopyStatus(`Command copied: ${manualCommandText}`);
+      announceCopyStatus(`Command copied: ${manualCommandText}`);
     } catch {
-      updateCopyStatus("Clipboard unavailable. Command remains visible above.");
+      announceCopyStatus("Clipboard unavailable. Command remains visible above.");
     }
-  }
-  function resetCopyStatus() {
-    setCopyStatus({ message: "", nonce: 0 });
-  }
-  function updateCopyStatus(message: string) {
-    setCopyStatus((current) => ({ message, nonce: current.nonce + 1 }));
   }
   function runLaunchCommand() {
     resetCopyStatus();

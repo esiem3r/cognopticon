@@ -231,6 +231,10 @@ test("action wheel copies a path fallback without daemon dispatch", async ({ pag
   expect(daemonCallsAfter).toBe(daemonCallsBefore);
   const copied = await page.evaluate(() => window.localStorage.getItem("cognopticon:test:copied-path"));
   expect(copied).toBe("/demo/workspace/tools/launchable-tool");
+
+  await page.getByLabel("Search projects").fill("proof");
+  const nextActions = page.getByLabel("Proof Forge actions");
+  await expect(nextActions.getByRole("status")).toHaveText("Copy path fallback ready.");
 });
 
 test("action wheel reports clipboard failure without changing the button label", async ({ page }) => {
@@ -374,6 +378,25 @@ test("mission drawer copies a validated brief without daemon dispatch", async ({
   expect(copied).not.toContain("daemonToken");
   const daemonCallsAfter = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
   expect(daemonCallsAfter).toBe(daemonCallsBefore);
+});
+
+test("mission drawer clears copy feedback when the brief changes", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () => Promise.resolve()
+      }
+    });
+  });
+
+  await page.goto("/tests/fixtures/mission-drawer-harness.html?mode=switch");
+  await page.getByRole("button", { name: "Copy Brief" }).click();
+  await expect(page.getByRole("status")).toContainText("Mission brief copied.");
+
+  await page.evaluate(() => (window as typeof window & { __swapMissionBrief?: () => void }).__swapMissionBrief?.());
+  await expect(page.getByLabel("Generated mission brief")).toContainText("Mission Brief: Drawer Harness Follow-up");
+  await expect(page.getByRole("status")).toHaveText("");
 });
 
 test("mission drawer reports clipboard failure without daemon dispatch", async ({ page }) => {
