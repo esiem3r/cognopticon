@@ -25,21 +25,26 @@ The packet is written to the active profile:
   run.json
   supervisor.md
   researcher.md
+  research-brief.md
   planner.md
   mission.md
   reviewer.md
   verifier.md
   ux-auditor.md
   integrator.md
+  handoff.md
   final-report.md
 ```
 
 Use the packet with another Codex terminal when a hands-off build/review/revise/verify loop is useful. The packet is intentionally local and ignored; it can mention private paths without contaminating the public repository.
 
+`research-brief.md` is the plan-lock gate. It records source links, retrieval dates, licenses, maintenance signals, reuse decisions, rejected options, and fit risks for Cognopticon's local-first/private-profile/daemon-safety model. `handoff.md` is the pasteable bounded prompt for a second Codex terminal; it points the worker to the mission, planner, and research artifacts without granting broad edit authority.
+
 Default roles:
 
 - supervisor: owns scope, standards, assignments, and acceptance
 - researcher: performs prior-art, license, and fit analysis before plan lock-in
+- research-brief: captures source, license, maintenance, reuse, and rejection evidence
 - planner: turns research and intent into decision-complete worker scopes
 - builder: implements the bounded slice
 - reviewer: findings-first review
@@ -49,6 +54,18 @@ Default roles:
 
 Prior-art research is required by default for substantial work. Use `--research off` only for small mechanical fixes and record why research was skipped.
 
+Validate generated packet structure with:
+
+```bash
+npm run validate:lifecycle
+```
+
+Validate a filled research brief before plan lock with:
+
+```bash
+npm run validate:lifecycle -- --packet ".cognopticon/profiles/<profile>/loops/<run>" --complete-research
+```
+
 Default gates:
 
 - `npm run validate:data`
@@ -57,6 +74,7 @@ Default gates:
 - `npm run validate:package`
 - `npm run validate:payload`
 - `npm run validate:local`
+- `npm run validate:lifecycle`
 - `npm run audit:deps`
 - `npm run lint`
 - `npm test`

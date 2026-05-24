@@ -28,7 +28,7 @@ requireText("README.md", [
 requireText("CONTRIBUTING.md", [".cognopticon/", "daemon tokens", "private paths", "generated local workspace JSON", "private screenshots", "npm run check", "SECURITY.md"]);
 requireText("CODE_OF_CONDUCT.md", ["private workspace data", "daemon tokens", "vulnerability details", "SUPPORT.md", "SECURITY.md"]);
 requireText("SUPPORT.md", [".cognopticon/", "daemon tokens", "private paths", "generated local workspace JSON", "screenshots", "SECURITY.md"]);
-requireText("docs/release-checklist.md", ["npm run check", "npm run validate:community", "npm run build:pages", "npm run validate:pages", "npm run validate:daemon", "npm run validate:daemon-config", "GitHub Pages", "public/workspace.json", "SECURITY.md", "SUPPORT.md", "independent reviewer"]);
+requireText("docs/release-checklist.md", ["npm run check", "npm run validate:community", "npm run build:pages", "npm run validate:pages", "npm run validate:lifecycle", "npm run validate:daemon", "npm run validate:daemon-config", "GitHub Pages", "public/workspace.json", "SECURITY.md", "SUPPORT.md", "independent reviewer"]);
 requireText(".github/ISSUE_TEMPLATE/bug_report.yml", [".cognopticon/", "daemon tokens", "private paths", "SECURITY.md", "private vulnerability reporting", "security coordination"]);
 requireText(".github/ISSUE_TEMPLATE/feature_request.yml", [".cognopticon/", "daemon tokens", "generated local workspace data", "private screenshots", "daemon-authority"]);
 requireText(".github/ISSUE_TEMPLATE/support_request.yml", ["SUPPORT.md", ".cognopticon/", "daemon tokens", "private paths", "generated local workspace data", "private screenshots"]);

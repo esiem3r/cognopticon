@@ -37,6 +37,7 @@ The checkpoint must report its release mode, release file count, zero unstaged/u
 - `npm run validate:package`
 - `npm run validate:payload`
 - `npm run validate:local`
+- `npm run validate:lifecycle`
 - `npm run audit:deps`
 - `npm run lint`
 - `npm test`
@@ -64,4 +65,5 @@ The hosted repository should be public, have Issues enabled, have unmaintained P
 
 - Review package contents with `npm pack --dry-run --json` or `npm run validate:package`.
 - Review staged release payload with `npm run validate:payload`.
+- Review lifecycle packet structure with `npm run validate:lifecycle` when changing orchestration, research, handoff, review, verifier, or UX-auditor behavior. For a real lifecycle run, use `npm run validate:lifecycle -- --packet "<runDir>" --complete-research` before plan lock when research is required.
 - Ask an independent reviewer or verifier to check privacy, daemon authority, docs, mobile UX, and final command evidence.

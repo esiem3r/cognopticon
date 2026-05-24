@@ -5,6 +5,7 @@ export const releaseGates = [
   { command: "npm", args: ["run", "validate:package"] },
   { command: "npm", args: ["run", "validate:payload"] },
   { command: "npm", args: ["run", "validate:local"] },
+  { command: "npm", args: ["run", "validate:lifecycle"] },
   { command: "npm", args: ["run", "audit:deps"] },
   { command: "npm", args: ["run", "lint"] },
   { command: "npm", args: ["test"] },

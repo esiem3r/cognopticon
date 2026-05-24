@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { loadRuntimeConfig } from "./runtime-config.mjs";
 import { releaseGateCommands } from "./verification-gates.mjs";
 
@@ -24,17 +24,31 @@ const run = {
   gates,
   researchRequired,
   uxRequired,
+  phaseOrder: [
+    "supervisor",
+    ...(researchRequired ? ["researcher", "research_brief"] : []),
+    "planner",
+    "mission",
+    "reviewer",
+    "verifier",
+    ...(uxRequired ? ["ux_auditor"] : []),
+    "integrator",
+    "handoff",
+    "final_report"
+  ],
   status: "packet_generated",
   createdAt: new Date().toISOString(),
   artifacts: {
     supervisor: join(runDir, "supervisor.md"),
     researcher: join(runDir, "researcher.md"),
+    researchBrief: join(runDir, "research-brief.md"),
     planner: join(runDir, "planner.md"),
     mission: join(runDir, "mission.md"),
     reviewer: join(runDir, "reviewer.md"),
     verifier: join(runDir, "verifier.md"),
     uxAuditor: join(runDir, "ux-auditor.md"),
     integrator: join(runDir, "integrator.md"),
+    handoff: join(runDir, "handoff.md"),
     finalReport: join(runDir, "final-report.md")
   }
 };
@@ -42,12 +56,14 @@ const run = {
 writeFileSync(join(runDir, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
 writeFileSync(run.artifacts.supervisor, `${supervisorPrompt(run)}\n`, "utf8");
 writeFileSync(run.artifacts.researcher, `${researcherPrompt(run)}\n`, "utf8");
+writeFileSync(run.artifacts.researchBrief, `${researchBriefTemplate(run)}\n`, "utf8");
 writeFileSync(run.artifacts.planner, `${plannerPrompt(run)}\n`, "utf8");
 writeFileSync(run.artifacts.mission, `${missionPrompt(run)}\n`, "utf8");
 writeFileSync(run.artifacts.reviewer, `${reviewerPrompt(run)}\n`, "utf8");
 writeFileSync(run.artifacts.verifier, `${verifierPrompt(run)}\n`, "utf8");
 writeFileSync(run.artifacts.uxAuditor, `${uxAuditorPrompt(run)}\n`, "utf8");
 writeFileSync(run.artifacts.integrator, `${integratorPrompt(run)}\n`, "utf8");
+writeFileSync(run.artifacts.handoff, `${handoffPrompt(run)}\n`, "utf8");
 writeFileSync(run.artifacts.finalReport, `${finalReportTemplate(run)}\n`, "utf8");
 
 console.log(`Created Cognopticon lifecycle packet: ${runDir}`);
@@ -71,16 +87,24 @@ function supervisorPrompt(run) {
     "",
     "## Packet Order",
     ...(run.researchRequired ? ["1. `researcher.md`"] : ["1. Research disabled for this packet; record why."]),
-    "2. `planner.md`",
-    "3. `mission.md` for builder implementation",
-    "4. `reviewer.md`",
-    "5. `verifier.md`",
-    ...(run.uxRequired ? ["6. `ux-auditor.md`"] : ["6. UX audit disabled for this packet; record why."]),
-    "7. `integrator.md`",
-    "8. `final-report.md`",
+    ...(run.researchRequired ? ["2. `research-brief.md` plan-lock evidence"] : []),
+    "3. `planner.md`",
+    "4. `mission.md` for builder implementation",
+    "5. `reviewer.md`",
+    "6. `verifier.md`",
+    ...(run.uxRequired ? ["7. `ux-auditor.md`"] : ["7. UX audit disabled for this packet; record why."]),
+    "8. `integrator.md`",
+    "9. `handoff.md` for second-terminal delegation when useful",
+    "10. `final-report.md`",
     "",
     "## Acceptance Rule",
-    "Do not mark the lifecycle complete until the final report names exact evidence, unresolved risks, and whether the output is accepted, rejected, or needs another loop."
+    "Do not mark the lifecycle complete until the final report names exact evidence, unresolved risks, and whether the output is accepted, rejected, or needs another loop.",
+    "",
+    "## Required Evidence Trail",
+    "- `research-brief.md` names source links, license decisions, maintenance signals, and reuse choices before plan lock.",
+    "- `planner.md` records how research changed the plan or why no reuse was chosen.",
+    "- Reviewer and verifier outputs name exact files, commands, and outcomes.",
+    "- `handoff.md` remains a bounded packet for a second Codex terminal rather than a broad project mandate."
   ].join("\n");
 }
 
@@ -92,18 +116,57 @@ function researcherPrompt(run) {
     "",
     "Search for mature open-source projects, libraries, patterns, and implementation references before implementation direction is locked.",
     "",
+    `Write findings into: ${run.artifacts.researchBrief}`,
+    "",
     "## Required Output",
-    "- Repos/packages found, with links.",
+    "- Repos/packages found, with links and retrieval dates.",
     "- License and compatibility notes. MIT/Apache/BSD are preferred; GPL/AGPL require explicit acceptance; no-license means no copying.",
     "- Maintenance signals: recent commits, releases, tests, docs, issue health.",
     "- What to reuse: dependency, architecture, algorithm, UX pattern, small attributed snippet, or nothing.",
     "- Fit/risk analysis for Cognopticon's local-first, private-profile, daemon-safety, graph-native product model.",
     "- Recommendation for the planner.",
+    "- Rejection rationale for any tempting project that should not be reused.",
     "",
     "## Constraints",
     "- Do not paste code into the product plan without license/provenance.",
     "- Prefer using a dependency or pattern over vendoring code.",
-    "- Treat frontend interaction patterns as prior art too, not only backend libraries."
+    "- Treat frontend interaction patterns as prior art too, not only backend libraries.",
+    "- If network research is unavailable, record the exact blocker and use locally cached docs only as provisional evidence."
+  ].join("\n");
+}
+
+function researchBriefTemplate(run) {
+  return [
+    "# Cognopticon Research Brief",
+    "",
+    `Run: ${run.id}`,
+    `Objective: ${run.objective}`,
+    "",
+    "## Research Status",
+    "- [ ] complete",
+    "- [ ] blocked",
+    "- [ ] skipped with explicit supervisor approval",
+    "",
+    "## Source Matrix",
+    "| Source | URL | Retrieved | License | Maintenance signal | Useful idea | Reuse decision |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+    "|  |  |  |  |  |  |  |",
+    "",
+    "## License Gate",
+    "- Dependencies or copied snippets approved:",
+    "- Sources rejected because of license/provenance:",
+    "- Attribution needed in code/docs:",
+    "",
+    "## Fit For Cognopticon",
+    "- Local-first/private-profile implications:",
+    "- Daemon authority implications:",
+    "- Public demo implications:",
+    "- Frontend/UX implications:",
+    "",
+    "## Recommendation To Planner",
+    "- Reuse:",
+    "- Avoid:",
+    "- Open questions before plan lock:"
   ].join("\n");
 }
 
@@ -114,6 +177,12 @@ function plannerPrompt(run) {
     `Planning objective: ${run.objective}`,
     "",
     "Use the research artifact if available. Produce a decision-complete implementation plan for the builder.",
+    run.researchRequired
+      ? `Do not lock the plan until ${run.artifacts.researchBrief} has complete source, license, maintenance, reuse, and rejection notes.`
+      : "Research was disabled for this packet; record the reason before planning.",
+    run.researchRequired
+      ? `Before plan lock, run: npm run validate:lifecycle -- --packet "${dirname(run.artifacts.researchBrief)}" --complete-research`
+      : "Do not run complete-research validation when research is disabled.",
     "",
     "## Plan Must Include",
     "- Product/user outcome.",
@@ -124,6 +193,7 @@ function plannerPrompt(run) {
     "- Frontend acceptance criteria if UI is touched.",
     "- Test and screenshot gates.",
     "- Worker write scopes if parallel workers are useful.",
+    "- Explicit prior-art decision: reuse dependency, borrow pattern, write from scratch, or defer.",
     "",
     "Do not call the plan complete if material product intent, safety, or frontend acceptance criteria are still ambiguous."
   ].join("\n");
@@ -148,7 +218,7 @@ function missionPrompt(run) {
     "",
     "## Required Loop",
     "1. Inspect the repo and identify concrete acceptance criteria.",
-    "2. Read the research and planner artifacts if present.",
+    "2. Read `research-brief.md` and `planner.md` if present; stop if the plan is locked without required research.",
     "3. Implement the slice completely.",
     "4. Run the verification gates that apply.",
     "5. Hand the changed files and verification output to an independent reviewer.",
@@ -161,6 +231,7 @@ function missionPrompt(run) {
     "## Final Report Must Include",
     "- Changed files",
     "- Product behavior added or repaired",
+    "- Prior-art sources used and reuse/license decisions",
     "- Verification commands and exact pass/fail status",
     "- Remaining risks or explicit statement that none are known"
   ].join("\n");
@@ -234,10 +305,46 @@ function integratorPrompt(run) {
     "- UX audit passed for touched surfaces.",
     "- Release/privacy hygiene passed.",
     "- Public/demo mode and private profile mode remain separated.",
-    "- Prior-art/license decisions are documented.",
+    "- Prior-art/license decisions are documented in `research-brief.md` and reflected in the plan.",
     "- Final report is specific enough for human review.",
     "",
     "If any item fails, send the work back into another bounded loop instead of calling it complete."
+  ].join("\n");
+}
+
+function handoffPrompt(run) {
+  return [
+    "# Second Codex Terminal Handoff",
+    "",
+    "Open a second terminal in the same repository and start Codex with this bounded packet.",
+    "",
+    "## Suggested Prompt",
+    "```text",
+    `You are the builder for Cognopticon lifecycle run ${run.id}.`,
+    `Objective: ${run.objective}`,
+    "",
+    "Read these local packet files first:",
+    `- ${run.artifacts.mission}`,
+    ...(run.researchRequired ? [`- ${run.artifacts.researchBrief}`] : []),
+    `- ${run.artifacts.planner}`,
+    "",
+    "Work only inside the mission scope unless the repo proves a small adjacent edit is required.",
+    "Do not edit `.cognopticon/` private state except to write lifecycle reports in this run directory.",
+    "Do not run destructive git commands.",
+    "After implementation, write your final report into the packet run directory and include changed files, verification commands, residual risks, and any authority you did not use.",
+    "Stop if the task conflicts with current git state, public/private data boundaries, or daemon safety.",
+    "```",
+    "",
+    "## Reviewer Prompt",
+    "```text",
+    `Review Cognopticon lifecycle run ${run.id} findings-first. Read reviewer.md, the diff, research-brief.md, verifier output, and UX evidence. Return blocking findings with file/line refs first, then residual risks.`,
+    "```",
+    "",
+    "## Stop Conditions",
+    "- Research brief missing or incomplete while research is required.",
+    "- Write scope is ambiguous.",
+    "- Public/private boundary is ambiguous.",
+    "- Verification cannot be run and no equivalent evidence exists."
   ].join("\n");
 }
 
@@ -253,6 +360,9 @@ function finalReportTemplate(run) {
     "## Behavior",
     "",
     "## Prior Art",
+    "- Sources:",
+    "- License/reuse decision:",
+    "- How research changed the plan:",
     "",
     "## Verification",
     "",
