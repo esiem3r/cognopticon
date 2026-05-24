@@ -1,10 +1,12 @@
 import type { CognopticonNode } from "../model/cognopticonNode";
 import type { CompiledMission, InterventionProposal } from "./types";
+import { defaultExcludedFiles, renderMissionPacketMarkdown, verificationCommandsFromSignals } from "../lib/missionPacket";
 
 export function compileMissionForProposal(proposal: InterventionProposal, nodes: CognopticonNode[], timestamp = new Date().toISOString()): CompiledMission {
   const selectedNodes = nodes.filter((node) => proposal.nodeIds.includes(node.id));
   const title = `Mission: ${proposal.title}`;
   const relevantFiles = selectedNodes.flatMap((node) => [node.path, ...node.evidence.map((item) => item.path)]).filter(Boolean);
+  const excludedFiles = defaultExcludedFiles();
   const constraints = [
     "Keep work inside the listed relevant paths unless explicitly redirected.",
     "Do not delete files or rewrite history.",
@@ -14,33 +16,41 @@ export function compileMissionForProposal(proposal: InterventionProposal, nodes:
       return mission?.constraints ?? [];
     })
   ];
-  const markdown = [
-    `# ${title}`,
-    "",
-    `Generated: ${timestamp}`,
-    "",
-    "## Objective",
-    proposal.summary,
-    "",
-    "## Context",
-    selectedNodes.map((node) => `- ${node.name}: ${node.facets.find((facet) => facet.kind === "summary")?.summary ?? node.path}`).join("\n"),
-    "",
-    "## Relevant Files",
-    ...relevantFiles.map((path) => `- ${path}`),
-    "",
-    "## Constraints",
-    ...constraints.map((constraint) => `- ${constraint}`),
-    "",
-    "## Acceptance Criteria",
-    "- The agent explains the intended change before editing.",
-    "- The result is verified with a concrete command or documented blocker.",
-    "- The handoff names changed files, residual risks, and next action.",
-    "",
-    "## Authority",
-    "- Read listed paths.",
-    "- Edit only after explicit user approval.",
-    "- Do not run destructive commands."
-  ].join("\n");
+  const verificationCommands = verificationCommandsForNodes(selectedNodes);
+  const acceptanceCriteria = ["Explain intent before editing.", "Verify or document blocker.", "Report changed files and residual risks."];
+  const authority = {
+    mayRead: relevantFiles,
+    mayEdit: [],
+    mayRun: verificationCommands,
+    requiresApproval: ["file edits", "commands beyond listed verification", "network access", "git commits or pushes"]
+  };
+  const markdown = renderMissionPacketMarkdown({
+    id: `mission:${proposal.id}`,
+    source: "proposal",
+    projectIds: proposal.nodeIds,
+    title,
+    objective: proposal.summary,
+    generatedAt: timestamp,
+    contextSummary: selectedNodes.map((node) => `- ${node.name}: ${node.facets.find((facet) => facet.kind === "summary")?.summary ?? node.path}`).join("\n") || proposal.rationale,
+    currentState: proposal.status,
+    relevantFiles,
+    excludedFiles,
+    knownRisks: proposal.evidence.map((item) => item.label),
+    constraints,
+    acceptanceCriteria,
+    verificationCommands,
+    firstActions: [
+      "Confirm the proposal still matches local evidence.",
+      "Inspect the listed paths before editing.",
+      "Choose the smallest reversible change that satisfies the objective.",
+      "Stop if the mission conflicts with repository state."
+    ],
+    authority,
+    sections: [
+      { heading: "Proposal Rationale", body: proposal.rationale },
+      { heading: "Proposal Metrics", body: [`- Impact: ${proposal.impact}`, `- Urgency: ${proposal.urgency}`, `- Confidence: ${proposal.confidence}`, `- Effort: ${proposal.effort}`, `- Reversibility: ${proposal.reversibility}`] }
+    ]
+  });
   return {
     id: `mission:${proposal.id}`,
     proposalId: proposal.id,
@@ -50,26 +60,27 @@ export function compileMissionForProposal(proposal: InterventionProposal, nodes:
     contextPacket: {
       canonicalSummary: proposal.rationale,
       relevantFiles,
-      excludedFiles: ["node_modules", "dist", ".git", ".cognopticon/state/events.jsonl"],
+      excludedFiles,
       knownRisks: proposal.evidence.map((item) => item.label),
       currentState: proposal.status
     },
     constraints,
-    acceptanceCriteria: ["Explain intent before editing.", "Verify or document blocker.", "Report changed files and residual risks."],
-    verificationCommands: ["npm test", "npm run build"],
+    acceptanceCriteria,
+    verificationCommands,
     agentInstructions: {
       role: "bounded implementation agent",
       style: "evidence-first, scoped, no broad rewrites",
       forbiddenMoves: ["delete files", "git push", "git reset --hard", "edit outside allowed paths without approval"],
       requiredOutputs: ["summary", "verification", "changed files", "remaining risks"]
     },
-    authority: {
-      mayRead: relevantFiles,
-      mayEdit: [],
-      mayRun: ["npm test", "npm run build"],
-      requiresApproval: ["file edits", "long-running commands", "network access"]
-    },
+    authority,
     markdown,
     createdAt: timestamp
   };
+}
+
+function verificationCommandsForNodes(nodes: CognopticonNode[]) {
+  const launchCommands = nodes.flatMap((node) => node.launch?.commands?.map((command) => `${command.command} ${command.args.join(" ")}`.trim()) ?? []);
+  const signalCommands = nodes.flatMap((node) => verificationCommandsFromSignals(node.source.analysis?.signals ?? [], node.evidence.map((item) => item.path)));
+  return [...new Set([...launchCommands, ...signalCommands])];
 }

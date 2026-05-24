@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Copy, X } from "lucide-react";
 import type { MissionBrief, ProjectDossier } from "../types/cognopticon";
 
@@ -11,6 +12,18 @@ interface MissionDrawerProps {
 }
 
 export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispatchSummary, onMarkReviewed, onClose }: MissionDrawerProps) {
+  const [downloadUrl, setDownloadUrl] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (!brief || typeof URL === "undefined") {
+      setDownloadUrl(undefined);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(new Blob([brief.markdown], { type: "text/markdown;charset=utf-8" }));
+    setDownloadUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [brief]);
+
   if (!brief) return null;
   const filename = `${project.id}-${brief.generatedAt.slice(0, 10)}-mission.md`;
 
@@ -34,7 +47,7 @@ export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispat
         <footer>
           <a
             className="download-button"
-            href={`data:text/markdown;charset=utf-8,${encodeURIComponent(brief.markdown)}`}
+            href={downloadUrl}
             download={filename}
           >
             Download Brief

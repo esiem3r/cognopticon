@@ -59,9 +59,19 @@ describe("domain helpers", () => {
   it("generates constrained mission briefs", () => {
     const brief = generateMissionBrief(projects[0], projects, relationships, "2026-05-19T00:00:00.000Z");
     expect(brief.markdown).toContain("# Mission Brief: One");
+    expect(brief.markdown).toContain("## Handoff Packet");
+    expect(brief.markdown).toContain('"source": "project"');
+    expect(brief.markdown).toContain('"authority"');
+    expect(brief.markdown).toContain('"excludedFiles"');
+    expect(handoffPacket(brief.markdown).authority).toMatchObject({
+      mayRead: ["/tmp/one"],
+      mayEdit: [],
+      requiresApproval: expect.arrayContaining(["file edits"])
+    });
     expect(brief.markdown).toContain("Stay scoped.");
     expect(brief.markdown).toContain("Two: feeds context");
     expect(brief.markdown).toContain("Build: It is central.");
+    expect(brief.markdown).not.toContain("data:text/markdown");
   });
 
   it("matches project text and scores active work", () => {
@@ -74,3 +84,9 @@ describe("domain helpers", () => {
     expect(nextActionQueue(projects)[0].id).toBe("one");
   });
 });
+
+function handoffPacket(markdown: string) {
+  const match = markdown.match(/```json\n([\s\S]*?)\n```/);
+  if (!match) throw new Error("Mission handoff packet JSON block missing");
+  return JSON.parse(match[1]);
+}
