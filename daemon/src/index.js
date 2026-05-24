@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { stat } from "node:fs/promises";
-import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -59,6 +59,7 @@ export function createDaemon(options = {}) {
   const spawnProcess = options.spawn ?? spawn;
   const now = options.now ?? (() => new Date().toISOString());
   const randomId = options.randomId ?? (() => Math.random().toString(36).slice(2));
+  hydrateOrchestratorState();
 
   const server = createServer(async (request, response) => {
     try {
@@ -84,6 +85,7 @@ export function createDaemon(options = {}) {
       });
       if (url.pathname === "/api/workspace") return await sendWorkspace(response);
       if (url.pathname === "/api/events") return await sendEvents(response);
+      if (request.method === "GET" && url.pathname === "/api/orchestrator/state") return send(response, 200, orchestratorState());
       if (request.method === "POST" && url.pathname === "/api/orchestrator/session") return await startOrchestratorSession(request, response);
       if (request.method === "POST" && url.pathname === "/api/orchestrator/task-event") return await recordTaskEvent(request, response);
       if (request.method === "POST" && url.pathname === "/api/actions/open-path") return await openPath(request, response);
@@ -177,7 +179,7 @@ export function createDaemon(options = {}) {
     send(response, 200, {
       ok: true,
       eventId,
-      taskEvent,
+      taskEvent: publicOrchestratorTaskEvent(taskEvent),
       message: completed ? "Task completion recorded by daemon." : "Task reopening recorded by daemon."
     });
   }
@@ -361,6 +363,77 @@ export function createDaemon(options = {}) {
 
   function latestSessionId() {
     return [...orchestratorSessions.keys()].at(-1);
+  }
+
+  function orchestratorState() {
+    const latest = latestSessionId();
+    return {
+      ok: true,
+      active: Boolean(latest),
+      latestSessionId: latest ? redactSensitiveText(latest) : undefined,
+      session: latest ? publicOrchestratorSession(orchestratorSessions.get(latest)) : undefined,
+      taskEvents: taskEvents.slice(-200).map(publicOrchestratorTaskEvent),
+      completedTaskIds: [...completedTaskIdsFromEvents(taskEvents)].map(redactSensitiveText)
+    };
+  }
+
+  function hydrateOrchestratorState() {
+    if (!existsSync(eventPath)) return;
+    forEachFileLine(eventPath, (line) => {
+      try {
+        hydrateOrchestratorEvent(JSON.parse(line));
+      } catch {
+        // Ignore malformed historical daemon lines; live writes remain structured.
+      }
+    });
+  }
+
+  function hydrateOrchestratorEvent(event) {
+    if (event?.type === "orchestrator_session_started" && typeof event.payload?.sessionId === "string") {
+      orchestratorSessions.set(event.payload.sessionId, {
+        ...event.payload,
+        sessionId: event.payload.sessionId,
+        mode: "orchestrator",
+        startedAt: event.payload.startedAt ?? event.createdAt
+      });
+      return;
+    }
+    if ((event?.type === "orchestrator_task_completed" || event?.type === "orchestrator_task_reopened") && isOrchestratorTaskEvent(event.payload)) {
+      taskEvents.push(event.payload);
+    }
+  }
+
+  function publicOrchestratorSession(session) {
+    if (!session) return undefined;
+    return sanitizeObjectStrings({
+      sessionId: session.sessionId,
+      mode: "orchestrator",
+      focusProjectId: session.focusProjectId,
+      startedAt: session.startedAt,
+      message: session.message
+    });
+  }
+
+  function publicOrchestratorTaskEvent(event) {
+    return sanitizeObjectStrings({
+      id: event.id,
+      sessionId: event.sessionId,
+      taskId: event.taskId,
+      projectId: event.projectId,
+      label: event.label,
+      completed: Boolean(event.completed),
+      source: event.source,
+      createdAt: event.createdAt
+    });
+  }
+
+  function completedTaskIdsFromEvents(events) {
+    const completed = new Set();
+    for (const event of events) {
+      if (event.completed) completed.add(event.taskId);
+      else completed.delete(event.taskId);
+    }
+    return completed;
   }
 
   function logEvent(type, payload) {
@@ -684,6 +757,19 @@ function requireString(value, label) {
   return value;
 }
 
+function isOrchestratorTaskEvent(value) {
+  return Boolean(value)
+    && typeof value === "object"
+    && typeof value.id === "string"
+    && (value.sessionId === undefined || typeof value.sessionId === "string")
+    && typeof value.taskId === "string"
+    && typeof value.projectId === "string"
+    && typeof value.label === "string"
+    && typeof value.completed === "boolean"
+    && (value.source === undefined || typeof value.source === "string")
+    && typeof value.createdAt === "string";
+}
+
 function requestClose(response, onClose) {
   response.on("close", onClose);
   response.on("error", onClose);
@@ -714,6 +800,31 @@ function mergeConfig(base, override) {
 function clamp(value, min, max) {
   if (!Number.isFinite(value)) return max;
   return Math.max(min, Math.min(max, value));
+}
+
+function forEachFileLine(path, onLine) {
+  const fd = openSync(path, "r");
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  const decoder = new TextDecoder();
+  let pending = "";
+  try {
+    let bytesRead = 0;
+    do {
+      bytesRead = readSync(fd, buffer, 0, buffer.length, null);
+      const chunk = decoder.decode(buffer.subarray(0, bytesRead), { stream: bytesRead > 0 });
+      const lines = `${pending}${chunk}`.split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed) onLine(trimmed);
+      }
+    } while (bytesRead > 0);
+
+    const trimmed = pending.trim();
+    if (trimmed) onLine(trimmed);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function eventSnapshotLines(path, sanitizeLine = sanitizeVisibleEventLine) {

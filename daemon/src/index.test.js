@@ -451,6 +451,120 @@ describe("cognopticon daemon endpoints", () => {
     });
   });
 
+  it("hydrates orchestrator state from persisted daemon events", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cognopticon-orchestrator-state-"));
+    const stateDir = join(root, ".cognopticon", "state");
+    mkdirSync(stateDir, { recursive: true });
+    writeDemoFixtures(root);
+    writeFileSync(join(stateDir, "events.jsonl"), [
+      JSON.stringify({
+        id: "daemon:session",
+        type: "orchestrator_session_started",
+        payload: {
+          ok: true,
+          sessionId: "orchestrator:restored",
+          mode: "orchestrator",
+          focusProjectId: "launchable-tool",
+          visualizerUrl: "http://127.0.0.1:5173/#daemonToken=secret",
+          startedAt: "2026-05-24T12:00:00.000Z",
+          message: `restored from ${join(root, "private-session.txt")}`
+        },
+        createdAt: "2026-05-24T12:00:00.000Z"
+      }),
+      JSON.stringify({
+        id: "daemon:completed",
+        type: "orchestrator_task_completed",
+        payload: {
+          id: "task:completed",
+          sessionId: "orchestrator:restored",
+          taskId: "launchable-tool:inspect",
+          projectId: "launchable-tool",
+          label: `Inspect current state in ${join(root, "private-task.txt")}`,
+          completed: true,
+          source: "user_orchestrator",
+          createdAt: "2026-05-24T12:00:01.000Z"
+        },
+        createdAt: "2026-05-24T12:00:01.000Z"
+      }),
+      JSON.stringify({
+        id: "daemon:reopened",
+        type: "orchestrator_task_reopened",
+        payload: {
+          id: "task:reopened",
+          sessionId: "orchestrator:restored",
+          taskId: "launchable-tool:scope",
+          projectId: "launchable-tool",
+          label: "Keep scope bounded",
+          completed: false,
+          source: "user_orchestrator",
+          createdAt: "2026-05-24T12:00:02.000Z"
+        },
+        createdAt: "2026-05-24T12:00:02.000Z"
+      })
+    ].join("\n") + "\n");
+
+    const daemon = createDaemon({
+      root,
+      configPath: false,
+      config: {
+        host: "127.0.0.1",
+        port: 0,
+        allowedRoots: [root],
+        allowedOrigins: ["http://local.test"],
+        daemon: { maxRequestBytes: 4096 },
+        agents: { maxThreads: 1, maxRuntimeMs: 5000 }
+      },
+      spawn: createSpawnStub(),
+      now: () => "2026-05-24T12:00:03.000Z",
+      randomId: createDeterministicIds()
+    });
+    await new Promise((resolveListen) => daemon.server.listen(0, "127.0.0.1", resolveListen));
+    daemons.push(daemon);
+    const address = daemon.server.address();
+    const url = `http://127.0.0.1:${address.port}`;
+
+    const stateResponse = await fetch(`${url}/api/orchestrator/state`, { headers: { Origin: "http://local.test" } });
+    const stateBody = await stateResponse.json();
+    expect(stateResponse.status).toBe(200);
+    expect(stateBody).toMatchObject({
+      ok: true,
+      active: true,
+      latestSessionId: "orchestrator:restored",
+      completedTaskIds: ["launchable-tool:inspect"],
+      session: {
+        sessionId: "orchestrator:restored",
+        mode: "orchestrator",
+        focusProjectId: "launchable-tool"
+      }
+    });
+    expect(JSON.stringify(stateBody)).not.toContain("daemonToken");
+    expect(JSON.stringify(stateBody)).not.toContain("visualizerUrl");
+    expect(JSON.stringify(stateBody)).not.toContain(root);
+    expect(JSON.stringify(stateBody)).not.toContain("private-session.txt");
+    expect(JSON.stringify(stateBody)).not.toContain("private-task.txt");
+
+    const recorded = await postJson(url, "/api/orchestrator/task-event", {
+      taskId: "launchable-tool:verify",
+      projectId: "launchable-tool",
+      label: `Run verification in ${join(root, "private-live-task.txt")}`,
+      completed: true
+    });
+    const recordedBody = await recorded.json();
+    expect(recorded.status).toBe(200);
+    expect(recordedBody.taskEvent).toMatchObject({
+      sessionId: "orchestrator:restored",
+      taskId: "launchable-tool:verify",
+      completed: true
+    });
+    expect(JSON.stringify(recordedBody)).not.toContain(root);
+    expect(JSON.stringify(recordedBody)).not.toContain("private-live-task.txt");
+
+    const updatedState = await fetch(`${url}/api/orchestrator/state`, { headers: { Origin: "http://local.test" } });
+    const updatedBody = await updatedState.json();
+    expect(JSON.stringify(updatedBody)).not.toContain(root);
+    expect(JSON.stringify(updatedBody)).not.toContain("private-live-task.txt");
+  });
+
   it("does not replay historical request-boundary failures in event snapshots", async () => {
     const { url, root } = await startTestDaemon();
     const eventPath = join(root, ".cognopticon", "state", "events.jsonl");
