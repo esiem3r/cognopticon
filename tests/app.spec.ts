@@ -709,6 +709,54 @@ test("mobile first viewport exposes graph context and an action path", async ({ 
   }
 });
 
+test("touch visibility filter checkbox labels are finger-safe targets", async ({ page }) => {
+  for (const viewport of productViewports.slice(0, 4)) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await page.getByRole("button", { name: /visible/ }).click();
+    const filters = page.getByLabel("Project visibility filters");
+    await expect(filters).toBeVisible();
+    await filters.locator("details").evaluateAll((details) => {
+      for (const item of details) item.open = true;
+    });
+
+    const targetAudit = await filters.evaluate((root) => {
+      const visible = (label: HTMLLabelElement) => {
+        const details = label.closest("details");
+        if (details && !details.open) return false;
+        const style = window.getComputedStyle(label);
+        const rect = label.getBoundingClientRect();
+        return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+      };
+      const targets = Array.from(root.querySelectorAll<HTMLLabelElement>("label"))
+        .filter((label) => label.querySelector("input[type='checkbox'], input[type='radio']"))
+        .filter(visible)
+        .map((label) => {
+          const rect = label.getBoundingClientRect();
+          return {
+            label: label.textContent?.trim().replace(/\s+/g, " ") || "label",
+            section: label.closest("details")?.querySelector("summary")?.textContent?.trim() || "unknown",
+            width: rect.width,
+            height: rect.height
+          };
+        });
+      const sections = targets.reduce<Record<string, number>>((counts, target) => {
+        counts[target.section] = (counts[target.section] ?? 0) + 1;
+        return counts;
+      }, {});
+      return {
+        sections,
+        undersized: targets.filter((target) => target.width < 43.5 || target.height < 43.5)
+      };
+    });
+
+    expect(targetAudit.sections.Type, `${viewport.width}x${viewport.height} Type labels`).toBeGreaterThan(0);
+    expect(targetAudit.sections.Domain, `${viewport.width}x${viewport.height} Domain labels`).toBeGreaterThan(0);
+    expect(targetAudit.sections.Project, `${viewport.width}x${viewport.height} Project labels`).toBeGreaterThan(0);
+    expect(targetAudit.undersized, `${viewport.width}x${viewport.height} undersized checkbox labels`).toEqual([]);
+  }
+});
+
 test("mobile graph labels avoid overlay controls", async ({ page }) => {
   for (const viewport of productViewports.slice(0, 3)) {
     await page.setViewportSize(viewport);

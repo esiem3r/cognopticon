@@ -22,7 +22,11 @@ const states = [
   { id: "default", setup: async () => {} },
   { id: "filters", setup: async (page) => {
     await page.getByRole("button", { name: /visible/ }).click();
-    await page.getByLabel("Project visibility filters").waitFor({ state: "visible" });
+    const filters = page.getByLabel("Project visibility filters");
+    await filters.waitFor({ state: "visible" });
+    await filters.locator("details").evaluateAll((details) => {
+      for (const item of details) item.open = true;
+    });
   } },
   { id: "queue", setup: async (page) => {
     await page.getByRole("button", { name: "Toggle next action queue" }).click();
@@ -110,7 +114,8 @@ try {
 
 function failuresFor(audit) {
   const failures = [];
-  const prefix = audit.viewport.width <= 480 ? "mobile" : "desktop";
+  const touchTargetViewport = audit.viewport.width <= 940;
+  const prefix = touchTargetViewport ? "touch" : "desktop";
   if (audit.privateLeaks.length) failures.push({ type: "privacy", message: `visible text leaks private/token-looking content: ${audit.privateLeaks.join(", ")}` });
   if (audit.scrollWidth > audit.innerWidth + 1) failures.push({ type: "overflow", message: `document has horizontal overflow ${audit.scrollWidth}px > ${audit.innerWidth}px` });
   if (audit.screenshot.bytes < 20_000) failures.push({ type: "screenshot", message: `screenshot artifact is suspiciously small (${audit.screenshot.bytes} bytes)` });
@@ -125,7 +130,7 @@ function failuresFor(audit) {
   if (audit.textOverlaps.length) failures.push({ type: "text-overlap", message: `overlapping visible text: ${audit.textOverlaps.slice(0, 5).map((item) => `${item.left} / ${item.right}`).join("; ")}` });
   if (audit.controlOverlaps.length) failures.push({ type: "control-overlap", message: `overlapping controls: ${audit.controlOverlaps.slice(0, 5).map((item) => `${item.left} / ${item.right}`).join("; ")}` });
   const tinyTargets = audit.tinyTargets.filter((item) => {
-    const min = prefix === "mobile" && item.primary ? 43.5 : 24;
+    const min = touchTargetViewport && item.primary ? 43.5 : 24;
     return item.width < min || item.height < min;
   });
   if (tinyTargets.length) failures.push({ type: "target-size", message: `undersized ${prefix} targets: ${tinyTargets.slice(0, 5).map((item) => `${item.label} ${Math.round(item.width)}x${Math.round(item.height)}`).join("; ")}` });
@@ -222,6 +227,7 @@ function runBrowserAudit() {
   const rectOf = (element) => {
     const rect = element.getBoundingClientRect();
     const visible = visibleRectFor(element, rect);
+    const controlLabel = isControlLabel(element);
     return {
       label: labelOf(element),
       tag: element.tagName,
@@ -234,7 +240,8 @@ function runBrowserAudit() {
       visibleWidth: visible.width,
       visibleHeight: visible.height,
       visibleRatio: rect.width * rect.height ? visible.width * visible.height / (rect.width * rect.height) : 0,
-      primary: ["BUTTON", "INPUT", "SELECT", "TEXTAREA", "A"].includes(element.tagName)
+      primary: controlLabel || ["BUTTON", "INPUT", "SELECT", "TEXTAREA", "A"].includes(element.tagName),
+      controlLabel
     };
   };
   const visibleRectFor = (element, rect) => {
@@ -258,7 +265,7 @@ function runBrowserAudit() {
   };
   const actionables = Array.from(document.querySelectorAll("button, input:not([type='hidden']):not([type='checkbox']):not([type='radio']), select, textarea, a[href], summary, label"))
     .filter(visibleElement)
-    .filter((element) => element.tagName !== "LABEL" || element.querySelector("input[type='checkbox'], input[type='radio']"))
+    .filter((element) => element.tagName !== "LABEL" || isControlLabel(element))
     .map((element) => ({ element, rect: rectOf(element) }));
   const inViewport = ({ rect }) => rect.visibleRatio > 0.85 && rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
   const viewportActionables = actionables.filter(inViewport);
@@ -370,10 +377,15 @@ function runBrowserAudit() {
     return Boolean(["INPUT", "SELECT", "TEXTAREA"].includes(element.tagName) || element.closest(".project-label") || element.matches(".task-card small"));
   }
 
+  function isControlLabel(element) {
+    return element.tagName === "LABEL" && Boolean(element.querySelector("input[type='checkbox'], input[type='radio']"));
+  }
+
   function canInteractTogether(left, right) {
-    const leftDrawer = left.closest(".drawer-backdrop");
-    const rightDrawer = right.closest(".drawer-backdrop");
-    if (leftDrawer || rightDrawer) return leftDrawer === rightDrawer;
+    const overlaySelector = ".drawer-backdrop, .filter-popover, .queue-popover, .dossier-panel";
+    const leftOverlay = left.closest(overlaySelector);
+    const rightOverlay = right.closest(overlaySelector);
+    if (leftOverlay || rightOverlay) return leftOverlay === rightOverlay;
     return true;
   }
 }
