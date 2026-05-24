@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Copy, X } from "lucide-react";
 import type { MissionBrief, ProjectDossier } from "../types/cognopticon";
+import { parseMissionPacketMarkdown } from "../lib/missionPacket";
+import { missionDrawerDeliveryState } from "./missionDrawerState";
 
 interface MissionDrawerProps {
   brief: MissionBrief | null;
@@ -13,16 +15,21 @@ interface MissionDrawerProps {
 
 export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispatchSummary, onMarkReviewed, onClose }: MissionDrawerProps) {
   const [downloadUrl, setDownloadUrl] = useState<string | undefined>();
+  const packetResult = useMemo(() => brief ? parseMissionPacketMarkdown(brief.markdown) : undefined, [brief]);
+  const delivery = useMemo(
+    () => missionDrawerDeliveryState(brief, packetResult, dispatchStatus, dispatchSummary),
+    [brief, dispatchStatus, dispatchSummary, packetResult]
+  );
 
   useEffect(() => {
-    if (!brief || typeof URL === "undefined") {
+    if (!delivery.markdownForDelivery || typeof URL === "undefined") {
       setDownloadUrl(undefined);
       return;
     }
-    const objectUrl = URL.createObjectURL(new Blob([brief.markdown], { type: "text/markdown;charset=utf-8" }));
+    const objectUrl = URL.createObjectURL(new Blob([delivery.markdownForDelivery], { type: "text/markdown;charset=utf-8" }));
     setDownloadUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
-  }, [brief]);
+  }, [delivery.markdownForDelivery]);
 
   if (!brief) return null;
   const filename = `${project.id}-${brief.generatedAt.slice(0, 10)}-mission.md`;
@@ -41,27 +48,29 @@ export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispat
         </header>
         <textarea value={brief.markdown} readOnly aria-label="Generated mission brief" />
         <section className="mission-approval" aria-label="Mission approval state">
-          <span>{dispatchStatus}</span>
-          <strong>{dispatchSummary ?? "Review records intent only. Use Run or Run Verification for daemon-backed execution."}</strong>
+          <span>{delivery.status}</span>
+          <strong>{delivery.summary}</strong>
         </section>
         <footer>
           <a
             className="download-button"
             href={downloadUrl}
             download={filename}
+            aria-disabled={!delivery.packetReady}
           >
             Download Brief
           </a>
           <button
             type="button"
+            disabled={!delivery.packetReady}
             onClick={() => {
-              void navigator.clipboard?.writeText(brief.markdown);
+              if (delivery.markdownForDelivery) void navigator.clipboard?.writeText(delivery.markdownForDelivery);
             }}
           >
             <Copy size={16} aria-hidden />
             Copy Brief
           </button>
-          <button type="button" className="dispatch-button" onClick={onMarkReviewed}>
+          <button type="button" className="dispatch-button" onClick={onMarkReviewed} disabled={!delivery.packetReady}>
             Mark Reviewed
           </button>
         </footer>

@@ -1,4 +1,5 @@
 import type { CompiledMission } from "../intelligence/types";
+import { assertValidMissionPacketMarkdown } from "../lib/missionPacket";
 
 export type AgentAdapterKind = "manual_copy" | "codex_cli" | "openai_agents" | "claude_code" | "local_script";
 
@@ -17,5 +18,6 @@ export const agentAdapters: AgentAdapter[] = [
 ];
 
 export function prepareManualCopyMission(mission: CompiledMission) {
+  assertValidMissionPacketMarkdown(mission.markdown);
   return mission.markdown;
 }
