@@ -14,9 +14,17 @@ interface MissionDrawerProps {
   onClose: () => void;
 }
 
+type CopyTarget = "brief" | "worker";
+
+interface CopyState {
+  target: CopyTarget;
+  message: string;
+  nonce: number;
+}
+
 export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispatchSummary, onMarkReviewed, onClose }: MissionDrawerProps) {
   const [downloadUrl, setDownloadUrl] = useState<string | undefined>();
-  const [copyState, setCopyState] = useState<{ target: "brief" | "worker"; message: string } | null>(null);
+  const [copyState, setCopyState] = useState<CopyState | null>(null);
   const packetResult = useMemo(() => brief ? parseMissionPacketMarkdown(brief.markdown) : undefined, [brief]);
   const workerPrompt = useMemo(() => {
     if (!brief || !packetResult?.ok) return undefined;
@@ -44,15 +52,18 @@ export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispat
   if (!brief) return null;
   const filename = `${project.id}-${brief.generatedAt.slice(0, 10)}-mission.md`;
 
-  async function copyPayload(target: "brief" | "worker", text: string | undefined) {
+  async function copyPayload(target: CopyTarget, text: string | undefined) {
     if (!text) return;
     try {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
       await navigator.clipboard.writeText(text);
-      setCopyState({ target, message: target === "worker" ? "Worker prompt copied." : "Mission brief copied." });
+      updateCopyState(target, target === "worker" ? "Worker prompt copied." : "Mission brief copied.");
     } catch {
-      setCopyState({ target, message: target === "worker" ? "Clipboard write failed. Worker prompt was not copied." : "Clipboard write failed. Download remains available." });
+      updateCopyState(target, target === "worker" ? "Clipboard write failed. Worker prompt was not copied." : "Clipboard write failed. Download remains available.");
     }
+  }
+  function updateCopyState(target: CopyTarget, message: string) {
+    setCopyState((current) => ({ target, message, nonce: (current?.nonce ?? 0) + 1 }));
   }
 
   return (
@@ -73,8 +84,9 @@ export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispat
           <strong>{delivery.summary}</strong>
           {workerPrompt && <p>Manual handoff ready. No agent or daemon dispatch will run from this drawer.</p>}
         </section>
-        <output className="mission-copy-feedback" aria-live="polite">
+        <output className="mission-copy-feedback" role="status" aria-atomic="true">
           {copyState?.message ?? ""}
+          {copyState && <span className="sr-only"> Attempt {copyState.nonce}.</span>}
         </output>
         <footer>
           <a

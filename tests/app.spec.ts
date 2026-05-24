@@ -288,6 +288,14 @@ test("malformed mission packet blocks official drawer delivery controls", async 
 
 test("mission drawer copies a bounded worker prompt without dispatching", async ({ page }) => {
   await page.addInitScript(() => {
+    const testWindow = window as typeof window & { __daemonMutationCalls?: string[] };
+    testWindow.__daemonMutationCalls = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (/\/api\/(?:jobs|actions|orchestrator)/.test(url)) testWindow.__daemonMutationCalls?.push(url);
+      return originalFetch(input, init);
+    };
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
@@ -301,10 +309,21 @@ test("mission drawer copies a bounded worker prompt without dispatching", async 
 
   await page.goto("/tests/fixtures/mission-drawer-harness.html");
   await expect(page.getByLabel("Mission approval state")).toContainText("Manual handoff ready");
-  await page.getByRole("button", { name: "Copy Worker Prompt" }).click();
-  await expect(page.locator(".mission-copy-feedback")).toContainText("Worker prompt copied.");
+  const copyWorker = page.getByRole("button", { name: "Copy Worker Prompt" });
+  const daemonCallsBefore = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+
+  await copyWorker.click();
+  await expect(copyWorker).toHaveText("Copy Worker Prompt");
+  await expect(page.getByRole("status")).toContainText("Worker prompt copied.");
+  const firstStatusText = await page.getByRole("status").textContent();
+  await copyWorker.click();
+  await expect(page.getByRole("status")).toContainText("Attempt 2.");
+  const secondStatusText = await page.getByRole("status").textContent();
+  expect(secondStatusText).not.toBe(firstStatusText);
   await page.getByRole("button", { name: "Mark Reviewed" }).click();
   await expect(page.getByLabel("Mission approval state")).toContainText("Mission reviewed.");
+  const daemonCallsAfter = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+  expect(daemonCallsAfter).toBe(daemonCallsBefore);
   const copied = await page.evaluate(() => window.localStorage.getItem("cognopticon:test:clipboard") ?? "");
 
   expect(copied).toContain("You are the worker Codex instance for Mission Brief: Drawer Harness.");
@@ -313,6 +332,87 @@ test("mission drawer copies a bounded worker prompt without dispatching", async 
   expect(copied).toContain("Validated handoff packet:");
   expect(copied).not.toContain("daemonToken");
   await expect(page.getByLabel("Runtime event feed")).toHaveCount(0);
+});
+
+test("mission drawer copies a validated brief without daemon dispatch", async ({ page }) => {
+  await page.addInitScript(() => {
+    const testWindow = window as typeof window & { __daemonMutationCalls?: string[] };
+    testWindow.__daemonMutationCalls = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (/\/api\/(?:jobs|actions|orchestrator)/.test(url)) testWindow.__daemonMutationCalls?.push(url);
+      return originalFetch(input, init);
+    };
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          window.localStorage.setItem("cognopticon:test:brief", text);
+          return Promise.resolve();
+        }
+      }
+    });
+  });
+
+  await page.goto("/tests/fixtures/mission-drawer-harness.html");
+  const copyBrief = page.getByRole("button", { name: "Copy Brief" });
+  const daemonCallsBefore = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+
+  await copyBrief.click();
+  await expect(copyBrief).toHaveText("Copy Brief");
+  await expect(page.getByRole("status")).toContainText("Mission brief copied.");
+  const firstStatusText = await page.getByRole("status").textContent();
+  await copyBrief.click();
+  await expect(page.getByRole("status")).toContainText("Attempt 2.");
+  const secondStatusText = await page.getByRole("status").textContent();
+  expect(secondStatusText).not.toBe(firstStatusText);
+
+  const copied = await page.evaluate(() => window.localStorage.getItem("cognopticon:test:brief") ?? "");
+  expect(copied).toContain("# Mission Brief: Drawer Harness");
+  expect(copied).toContain("## Handoff Packet");
+  expect(copied).not.toContain("daemonToken");
+  const daemonCallsAfter = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+  expect(daemonCallsAfter).toBe(daemonCallsBefore);
+});
+
+test("mission drawer reports clipboard failure without daemon dispatch", async ({ page }) => {
+  await page.addInitScript(() => {
+    const testWindow = window as typeof window & { __daemonMutationCalls?: string[] };
+    testWindow.__daemonMutationCalls = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (/\/api\/(?:jobs|actions|orchestrator)/.test(url)) testWindow.__daemonMutationCalls?.push(url);
+      return originalFetch(input, init);
+    };
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () => Promise.reject(new Error("denied"))
+      }
+    });
+  });
+
+  await page.goto("/tests/fixtures/mission-drawer-harness.html");
+  const copyBrief = page.getByRole("button", { name: "Copy Brief" });
+  const copyWorker = page.getByRole("button", { name: "Copy Worker Prompt" });
+  const daemonCallsBefore = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+
+  await copyBrief.click();
+  await expect(copyBrief).toHaveText("Copy Brief");
+  await expect(page.getByRole("status")).toContainText("Clipboard write failed. Download remains available.");
+  const firstStatusText = await page.getByRole("status").textContent();
+  await copyBrief.click();
+  await expect(page.getByRole("status")).toContainText("Attempt 2.");
+  const secondStatusText = await page.getByRole("status").textContent();
+  expect(secondStatusText).not.toBe(firstStatusText);
+
+  await copyWorker.click();
+  await expect(copyWorker).toHaveText("Copy Worker Prompt");
+  await expect(page.getByRole("status")).toContainText("Clipboard write failed. Worker prompt was not copied.");
+  const daemonCallsAfter = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+  expect(daemonCallsAfter).toBe(daemonCallsBefore);
 });
 
 test("runtime rail explains daemon failures with action provenance", async ({ page }) => {
