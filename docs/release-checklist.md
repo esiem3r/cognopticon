@@ -41,6 +41,7 @@ The checkpoint must report its release mode, release file count, zero unstaged/u
 - `npm test`
 - `npm run build`
 - `npm run validate:daemon`
+- `npm run validate:daemon-config`
 - `npm run audit:ux`
 - `npm run test:e2e`
 
