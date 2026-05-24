@@ -61,8 +61,8 @@ Default gates:
 - `npm run lint`
 - `npm test`
 - `npm run build`
+- `npm run audit:ux`
 - `npm run test:e2e`
-- screenshot/UX audit for frontend work
 
 The matching personal Codex skill is `cognopticon-lifecycle`. It keeps the workflow reusable across sessions and machines while Cognopticon records the artifacts per profile.
 

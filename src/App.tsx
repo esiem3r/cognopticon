@@ -382,7 +382,7 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={["app-shell", filtersOpen ? "filters-open" : "", queueOpen ? "queue-open" : ""].filter(Boolean).join(" ")}>
       <section className="topbar" aria-label="Cognopticon controls">
         <div className="brand-lockup">
           <Sparkles size={18} aria-hidden />
@@ -439,7 +439,7 @@ export default function App() {
       </section>
 
       <section className="workspace">
-        <div className="canvas-stage">
+        <div className={["canvas-stage", filtersOpen ? "filters-open" : "", queueOpen ? "queue-open" : ""].filter(Boolean).join(" ")}>
           <UniverseCanvas
             projects={projectDossiers}
             nodes={nodes}
@@ -545,7 +545,12 @@ export default function App() {
               <div className="filter-popover" aria-label="Project visibility filters">
                 <header>
                   <strong>Visibility</strong>
-                  <button type="button" onClick={resetOverlayFilters}>Reset</button>
+                  <div className="popover-actions">
+                    <button type="button" onClick={resetOverlayFilters}>Reset</button>
+                    <button type="button" className="icon-button" aria-label="Close visibility filters" onClick={() => setFiltersOpen(false)}>
+                      <X size={16} aria-hidden />
+                    </button>
+                  </div>
                 </header>
 
                 <details open>
