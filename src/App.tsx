@@ -13,7 +13,7 @@ import { adaptProjectDossiers } from "./model/adaptProjectDossier";
 import { DetailTray } from "./overlays/DetailTray";
 import { NodeCockpit } from "./overlays/NodeCockpit";
 import { NodeOverlayLayer } from "./overlays/NodeOverlayLayer";
-import { checkDaemonHealth, createDaemonJob, getDaemonJob, recordOrchestratorTaskEvent, startOrchestratorSession, subscribeDaemonEvents } from "./services/daemonClient";
+import { checkDaemonHealth, createDaemonJob, getDaemonJob, getOrchestratorState, recordOrchestratorTaskEvent, startOrchestratorSession, subscribeDaemonEvents, type OrchestratorTaskEvent } from "./services/daemonClient";
 import type { CognopticonWorkspace, MissionBrief, ProjectDomain, ProjectDossier, ProjectStatus, RunRecord } from "./types/cognopticon";
 
 const projectTypeFilters = [
@@ -84,6 +84,24 @@ export default function App() {
     return subscribeDaemonEvents((event) => {
       setRuntimeEvents((current) => [event, ...current.filter((item) => item.id !== event.id)].slice(0, 80));
     }, daemonStatus.url);
+  }, [daemonStatus.online, daemonStatus.url]);
+
+  useEffect(() => {
+    if (!daemonStatus.online) return;
+    let alive = true;
+    getOrchestratorState(daemonStatus.url).then((state) => {
+      if (!alive || !state.ok) return;
+      const ledger = taskLedgerFromState(state.completedTaskIds, state.taskEvents);
+      setCompletedTasks(ledger.completedTasks);
+      setTaskSyncState(ledger.syncState);
+      if (!state.active) return;
+      setOrchestratorActive(true);
+      setOrchestratorSessionId(state.latestSessionId ?? state.session?.sessionId);
+      setOrchestratorMessage(`Daemon restored the orchestrator session with ${state.taskEvents.length} recorded task event${state.taskEvents.length === 1 ? "" : "s"}.`);
+    });
+    return () => {
+      alive = false;
+    };
   }, [daemonStatus.online, daemonStatus.url]);
 
   const projectDossiers = workspace.projects;
@@ -682,6 +700,15 @@ function taskSyncLabel(state: "local" | "syncing" | "synced" | "error" | undefin
   if (state === "error") return "error";
   if (state === "local") return "local";
   return orchestratorActive ? "ready" : "local";
+}
+
+function taskLedgerFromState(completedTaskIds: string[], events: OrchestratorTaskEvent[]) {
+  const completedTasks = new Set(completedTaskIds);
+  const syncState = Object.fromEntries(completedTaskIds.map((taskId) => [taskId, "synced"])) as Record<string, "synced">;
+  for (const event of [...events].sort((left, right) => left.createdAt.localeCompare(right.createdAt))) {
+    syncState[event.taskId] = "synced";
+  }
+  return { completedTasks, syncState };
 }
 
 function verificationCommandFor(project: ProjectDossier) {

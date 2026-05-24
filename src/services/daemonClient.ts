@@ -62,6 +62,33 @@ export interface OrchestratorTaskEventResult {
   };
 }
 
+export interface OrchestratorTaskEvent {
+  id: string;
+  sessionId?: string;
+  taskId: string;
+  projectId: string;
+  label: string;
+  completed: boolean;
+  source?: string;
+  createdAt: string;
+}
+
+export interface OrchestratorStateResult {
+  ok: boolean;
+  active: boolean;
+  latestSessionId?: string;
+  session?: {
+    sessionId: string;
+    mode: "orchestrator";
+    focusProjectId?: string;
+    startedAt?: string;
+    message?: string;
+  };
+  taskEvents: OrchestratorTaskEvent[];
+  completedTaskIds: string[];
+  message?: string;
+}
+
 const DEFAULT_DAEMON_URL = "http://127.0.0.1:8787";
 const DAEMON_TOKEN_STORAGE_KEY = "cognopticon:daemonToken";
 
@@ -221,6 +248,28 @@ export async function recordOrchestratorTaskEvent(payload: {
   }
 }
 
+export async function getOrchestratorState(baseUrl = DEFAULT_DAEMON_URL): Promise<OrchestratorStateResult> {
+  try {
+    const response = await fetch(`${baseUrl}/api/orchestrator/state`, { headers: daemonAuthHeaders() });
+    const body = await readDaemonJson(response);
+    if (!response.ok) {
+      return { ok: false, active: false, taskEvents: [], completedTaskIds: [], message: `Daemon rejected orchestrator state: HTTP ${response.status}` };
+    }
+    if (!isOrchestratorStateResult(body)) {
+      return { ok: false, active: false, taskEvents: [], completedTaskIds: [], message: "Daemon returned malformed orchestrator state." };
+    }
+    return body;
+  } catch (error) {
+    return {
+      ok: false,
+      active: false,
+      taskEvents: [],
+      completedTaskIds: [],
+      message: error instanceof Error ? error.message : "Daemon orchestrator state failed"
+    };
+  }
+}
+
 export function subscribeDaemonEvents(onEvent: (event: CognopticonEvent) => void, baseUrl = DEFAULT_DAEMON_URL) {
   const controller = new AbortController();
   void streamDaemonEvents(onEvent, baseUrl, controller.signal);
@@ -295,6 +344,42 @@ function isDaemonJob(value: unknown): value is DaemonJob {
     && typeof job.createdAt === "string"
     && typeof job.updatedAt === "string"
     && typeof job.timeoutMs === "number";
+}
+
+function isOrchestratorStateResult(value: unknown): value is OrchestratorStateResult {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<OrchestratorStateResult>;
+  return state.ok === true
+    && typeof state.active === "boolean"
+    && (state.latestSessionId === undefined || typeof state.latestSessionId === "string")
+    && (state.session === undefined || isOrchestratorSession(state.session))
+    && Array.isArray(state.taskEvents)
+    && state.taskEvents.every(isOrchestratorTaskEvent)
+    && Array.isArray(state.completedTaskIds)
+    && state.completedTaskIds.every((item) => typeof item === "string");
+}
+
+function isOrchestratorSession(value: unknown): value is NonNullable<OrchestratorStateResult["session"]> {
+  if (!value || typeof value !== "object") return false;
+  const session = value as Partial<NonNullable<OrchestratorStateResult["session"]>>;
+  return typeof session.sessionId === "string"
+    && session.mode === "orchestrator"
+    && (session.focusProjectId === undefined || typeof session.focusProjectId === "string")
+    && (session.startedAt === undefined || typeof session.startedAt === "string")
+    && (session.message === undefined || typeof session.message === "string");
+}
+
+function isOrchestratorTaskEvent(value: unknown): value is OrchestratorTaskEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Partial<OrchestratorTaskEvent>;
+  return typeof event.id === "string"
+    && (event.sessionId === undefined || typeof event.sessionId === "string")
+    && typeof event.taskId === "string"
+    && typeof event.projectId === "string"
+    && typeof event.label === "string"
+    && typeof event.completed === "boolean"
+    && (event.source === undefined || typeof event.source === "string")
+    && typeof event.createdAt === "string";
 }
 
 async function readDaemonJson(response: Response): Promise<Record<string, unknown>> {

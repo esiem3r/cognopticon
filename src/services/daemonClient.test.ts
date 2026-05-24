@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { __resetDaemonTokenForTests, __setDaemonEventReconnectDelayForTests, checkDaemonHealth, daemonToken, isDaemonRequestBoundaryFailure, normalizeDaemonEvent, sanitizeDaemonErrorMessage, subscribeDaemonEvents } from "./daemonClient";
+import { __resetDaemonTokenForTests, __setDaemonEventReconnectDelayForTests, checkDaemonHealth, daemonToken, getOrchestratorState, isDaemonRequestBoundaryFailure, normalizeDaemonEvent, sanitizeDaemonErrorMessage, subscribeDaemonEvents } from "./daemonClient";
 
 afterEach(() => {
   __resetDaemonTokenForTests();
@@ -213,6 +213,51 @@ describe("daemon event normalization", () => {
     expect(sessionStorage.getItem("cognopticon:daemonToken")).toBe("new-secret");
     expect(history.replaceState).toHaveBeenCalled();
     expect(String(history.replaceState.mock.calls[0][2])).not.toContain("daemonToken");
+  });
+
+  it("loads bounded orchestrator state with daemon auth headers", async () => {
+    const sessionStorage = memoryStorage({ "cognopticon:daemonToken": "state-secret" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/"),
+      sessionStorage,
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      active: true,
+      latestSessionId: "orchestrator:1",
+      session: {
+        sessionId: "orchestrator:1",
+        mode: "orchestrator",
+        focusProjectId: "launchable-tool",
+        startedAt: "2026-05-24T12:00:00.000Z",
+        message: "restored"
+      },
+      taskEvents: [{
+        id: "task:1",
+        sessionId: "orchestrator:1",
+        taskId: "launchable-tool:inspect",
+        projectId: "launchable-tool",
+        label: "Inspect current state",
+        completed: true,
+        createdAt: "2026-05-24T12:00:01.000Z"
+      }],
+      completedTaskIds: ["launchable-tool:inspect"]
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const state = await getOrchestratorState("http://127.0.0.1:8787");
+
+    expect(state).toMatchObject({
+      ok: true,
+      active: true,
+      latestSessionId: "orchestrator:1",
+      completedTaskIds: ["launchable-tool:inspect"]
+    });
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/api/orchestrator/state", expect.objectContaining({
+      headers: { "X-Cognopticon-Token": "state-secret" }
+    }));
   });
 
   it("streams daemon events with fetch headers and reconnects after EOF", async () => {

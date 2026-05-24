@@ -266,6 +266,70 @@ test("orchestrator access arms the visualizer without exposing workers", async (
   await expect(page.getByTestId("universe-canvas")).toBeVisible();
 });
 
+test("orchestrator queue restores daemon-backed task state after reload", async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/api/health")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/state")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          active: true,
+          latestSessionId: "orchestrator:restored",
+          session: {
+            sessionId: "orchestrator:restored",
+            mode: "orchestrator",
+            focusProjectId: "launchable-tool",
+            startedAt: "2026-05-24T12:00:00.000Z",
+            message: "restored"
+          },
+          taskEvents: [{
+            id: "task:restored",
+            sessionId: "orchestrator:restored",
+            taskId: "launchable-tool:inspect",
+            projectId: "launchable-tool",
+            label: "Inspect current state and confirm the smallest useful move",
+            completed: true,
+            source: "user_orchestrator",
+            createdAt: "2026-05-24T12:00:01.000Z"
+          }],
+          completedTaskIds: ["launchable-tool:inspect", "launchable-tool:scope"]
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/events")) {
+        return Promise.resolve(new Response("event: snapshot\ndata: []\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" }
+        }));
+      }
+      return originalFetch(input, init);
+    };
+  });
+
+  await page.goto("/");
+  await expect(page.getByLabel("Orchestrator access")).toContainText("Visualizer armed");
+  await expect(page.getByLabel("Orchestrator access")).toContainText("Daemon restored the orchestrator session with 1 recorded task event.");
+  await page.getByRole("button", { name: "Toggle next action queue" }).click();
+  const launchable = page.locator(".task-card", { hasText: "Launchable Tool" });
+  await expect(launchable).toBeVisible();
+  await launchable.locator("summary").click();
+  const restoredTask = launchable.locator("label", { hasText: "Inspect current state and confirm the smallest useful move" });
+  await expect(restoredTask.getByRole("checkbox")).toBeChecked();
+  await expect(restoredTask.locator("em")).toHaveText("daemon");
+  const projectedTask = launchable.locator("label", { hasText: "Keep scope inside" });
+  await expect(projectedTask.getByRole("checkbox")).toBeChecked();
+  await expect(projectedTask.locator("em")).toHaveText("daemon");
+});
+
 test("mission approval stages work without daemon dispatch", async ({ page }) => {
   await page.goto("/?daemon=off");
   await page.getByRole("button", { name: "Generate Mission", exact: true }).first().click();

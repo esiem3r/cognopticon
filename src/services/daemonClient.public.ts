@@ -1,6 +1,6 @@
 import type { DaemonStatus } from "../agency/types";
 import type { CognopticonEvent } from "../intelligence/types";
-import type { DaemonActionResult, DaemonJobResult, OrchestratorSessionResult, OrchestratorTaskEventResult } from "./daemonClient";
+import type { DaemonActionResult, DaemonJobResult, OrchestratorSessionResult, OrchestratorStateResult, OrchestratorTaskEventResult } from "./daemonClient";
 
 const PUBLIC_DEMO_URL = "public-static-demo";
 
@@ -39,6 +39,16 @@ export async function recordOrchestratorTaskEvent(): Promise<OrchestratorTaskEve
   return {
     ok: false,
     eventId: crypto.randomUUID(),
+    message: "Local runtime actions are disabled in the public static demo."
+  };
+}
+
+export async function getOrchestratorState(): Promise<OrchestratorStateResult> {
+  return {
+    ok: false,
+    active: false,
+    taskEvents: [],
+    completedTaskIds: [],
     message: "Local runtime actions are disabled in the public static demo."
   };
 }
