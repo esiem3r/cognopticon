@@ -57,6 +57,7 @@ export function MissionDrawer({ brief, project, dispatchStatus = "draft", dispat
             href={downloadUrl}
             download={filename}
             aria-disabled={!delivery.packetReady}
+            tabIndex={delivery.packetReady ? undefined : -1}
           >
             Download Brief
           </a>

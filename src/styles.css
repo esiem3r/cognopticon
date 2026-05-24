@@ -1364,6 +1364,12 @@ select {
   justify-content: center;
 }
 
+.download-button[aria-disabled="true"] {
+  color: rgba(218, 255, 241, 0.38);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .mission-drawer textarea {
   resize: none;
   width: 100%;

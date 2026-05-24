@@ -27,6 +27,7 @@ const forbiddenPatterns = [
   /^public\/workspace\.json$/,
   /^src\/data\/demo-workspace\.json$/,
   /^test-results\//,
+  /^tests\/fixtures\//,
   /^workspace-scan\.json$/,
   /\.tgz$/
 ];
