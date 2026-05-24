@@ -47,6 +47,7 @@ The checkpoint must report its release mode, release file count, zero unstaged/u
 - `npm run validate:daemon`
 - `npm run validate:daemon-config`
 - `npm run audit:ux`
+- `npm run audit:a11y`
 - `npm run test:e2e`
 
 Do not call the release ready until the exact gate output is recorded in the lifecycle final report or pull request.
