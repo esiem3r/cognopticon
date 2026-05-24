@@ -28,7 +28,12 @@ try {
   mkdirSync(join(projectRoot, "tests"), { recursive: true });
   mkdirSync(secondaryRoot, { recursive: true });
   mkdirSync(stateDir, { recursive: true });
-  writeFileSync(join(projectRoot, "proof.mjs"), "console.log('daemon-proof-ok');\n", "utf8");
+  writeFileSync(join(projectRoot, "proof.mjs"), [
+    "console.log('daemon-proof-ok');",
+    "console.log(`proof-cwd=${process.cwd()}`);",
+    "console.error(`proof-stderr=${process.cwd()}/secret.txt`);",
+    ""
+  ].join("\n"), "utf8");
   writeFileSync(join(projectRoot, "package.json"), `${JSON.stringify({ scripts: { test: "node proof.mjs" } }, null, 2)}\n`, "utf8");
   writeFileSync(workspacePath, `${JSON.stringify(buildWorkspace(), null, 2)}\n`, "utf8");
   writeFileSync(eventPath, "", "utf8");
@@ -59,7 +64,7 @@ try {
   await assertBrowserAppRuntime(baseUrl);
   const job = await assertAllowlistedJob(baseUrl);
   await assertOutsideRootRejected(baseUrl);
-  const events = assertEvents(job.id);
+  const events = await assertEvents(baseUrl, job.id);
 
   console.log(`Cognopticon local daemon valid: served built app, profile ${profileId}, job ${job.id} completed, ${events.length} daemon events.`);
 } finally {
@@ -254,6 +259,8 @@ async function assertAllowlistedJob(baseUrl) {
   assert(job.command === "node", "daemon job should preserve command metadata");
   assert(JSON.stringify(job.args) === JSON.stringify(["proof.mjs"]), "daemon job should preserve argument metadata");
   assert(job.stdout.includes("daemon-proof-ok"), "daemon job should capture stdout");
+  assert(job.stdout.includes(projectRoot), "direct daemon job lookup should keep raw local stdout for the requesting operator");
+  assert(job.stderr.includes(projectRoot), "direct daemon job lookup should keep raw local stderr for the requesting operator");
   return job;
 }
 
@@ -270,17 +277,45 @@ async function assertOutsideRootRejected(baseUrl) {
   assert(!JSON.stringify(body).includes(repoRoot), "outside-root rejection should not leak the repository path");
 }
 
-function assertEvents(jobId) {
+async function assertEvents(baseUrl, jobId) {
   const events = readFileSync(eventPath, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
   const eventTypes = events.map((event) => event.type);
   for (const type of ["job_queued", "job_started", "job_output", "job_finished", "action_failed"]) {
     assert(eventTypes.includes(type), `daemon events should include ${type}`);
   }
   assert(events.some((event) => event.type === "job_output" && event.payload?.jobId === jobId && event.payload?.text?.includes("daemon-proof-ok")), "daemon events should record job stdout");
+  assert(events.some((event) => event.type === "job_output" && event.payload?.jobId === jobId && event.payload?.text?.includes("[redacted path]")), "daemon events should redact path-bearing job output");
   const serializedEvents = JSON.stringify(events);
   assert(serializedEvents.includes("Path is outside configured Cognopticon roots."), "daemon events should record redacted policy failures");
   assert(!serializedEvents.includes(repoRoot), "daemon events should not leak the repository path in policy failures");
+  assert(!serializedEvents.includes(projectRoot), "daemon events should not leak the project root");
+  assert(!serializedEvents.includes(stateDir), "daemon events should not leak the profile state directory");
+  assert(!serializedEvents.includes("secret.txt"), "daemon events should not leak path-bearing stderr details");
+  assert(!events.some((event) => event.type.startsWith("job_") && event.payload?.cwd), "daemon job events should not persist cwd");
+  assert(!events.some((event) => event.type.startsWith("job_") && event.payload?.stdout), "daemon job events should not persist raw stdout");
+  assert(!events.some((event) => event.type.startsWith("job_") && event.payload?.stderr), "daemon job events should not persist raw stderr");
+  const snapshot = await readEventSnapshot(baseUrl);
+  const serializedSnapshot = JSON.stringify(snapshot);
+  assert(!serializedSnapshot.includes(projectRoot), "daemon event snapshot should not replay project roots");
+  assert(!serializedSnapshot.includes(stateDir), "daemon event snapshot should not replay profile state paths");
+  assert(!serializedSnapshot.includes("secret.txt"), "daemon event snapshot should not replay path-bearing stderr details");
   return events;
+}
+
+async function readEventSnapshot(baseUrl) {
+  const response = await fetch(`${baseUrl}/api/events`);
+  assert(response.status === 200, `daemon event snapshot returned ${response.status}`);
+  assert(response.body, "daemon event snapshot should return a stream");
+  const reader = response.body.getReader();
+  try {
+    const { value } = await reader.read();
+    const text = Buffer.from(value).toString("utf8");
+    const match = text.match(/event: snapshot\ndata: (.*)\n\n/);
+    assert(match, "daemon event snapshot should include historical events");
+    return JSON.parse(match[1]);
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
 }
 
 async function pollJob(baseUrl, jobId) {

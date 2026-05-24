@@ -73,6 +73,33 @@ describe("daemon event normalization", () => {
     expect(sanitizeDaemonErrorMessage("failed at C:\\Users\\User\\secret.txt")).toBe("failed at [redacted path]");
   });
 
+  it("normalizes redacted job events without depending on raw local paths", () => {
+    const outputEvent = normalizeDaemonEvent({
+      id: "daemon:output",
+      type: "job_output",
+      payload: { jobId: "job:1", stream: "stdout", text: "daemon-proof-ok [redacted path]", truncated: false },
+      createdAt: "2026-05-23T12:00:00.000Z"
+    });
+    const finishedEvent = normalizeDaemonEvent({
+      id: "daemon:finished",
+      type: "job_finished",
+      payload: { id: "job:1", command: "node", args: ["proof.mjs"], status: "completed", ok: true },
+      createdAt: "2026-05-23T12:00:01.000Z"
+    });
+
+    expect(outputEvent).toMatchObject({
+      id: "daemon:output",
+      type: "job_output",
+      payload: { jobId: "job:1", text: "daemon-proof-ok [redacted path]" }
+    });
+    expect(JSON.stringify(outputEvent)).not.toContain("/home/user");
+    expect(finishedEvent).toMatchObject({
+      id: "daemon:finished",
+      type: "job_finished",
+      payload: { id: "job:1", command: "node", status: "completed" }
+    });
+  });
+
   it("bootstraps daemon tokens into session storage and strips visible URLs", async () => {
     const sessionStorage = memoryStorage();
     const localStorage = memoryStorage({ "cognopticon:daemonToken": "legacy-secret" });

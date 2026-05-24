@@ -110,7 +110,8 @@ export function createDaemon(options = {}) {
 
   async function sendEvents(response) {
     response.writeHead(200, sseHeaders.call(response));
-    const snapshot = eventSnapshotLines(eventPath);
+    response.flushHeaders?.();
+    const snapshot = eventSnapshotLines(eventPath, sanitizeEventLine);
     if (snapshot.length) response.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
     eventClients.add(response);
     requestClose(response, () => eventClients.delete(response));
@@ -364,10 +365,101 @@ export function createDaemon(options = {}) {
 
   function logEvent(type, payload) {
     const id = makeId("daemon");
-    const event = { id, type, payload, createdAt: now() };
+    const event = sanitizeEvent({ id, type, payload, createdAt: now() });
     writeFileSync(eventPath, `${JSON.stringify(event)}\n`, { flag: "a" });
     for (const client of eventClients) client.write(`event: ${type}\ndata: ${JSON.stringify(event)}\n\n`);
     return id;
+  }
+
+  function sanitizeEvent(event) {
+    return {
+      ...event,
+      payload: sanitizeEventPayload(event.type, event.payload)
+    };
+  }
+
+  function sanitizeEventLine(line) {
+    try {
+      const event = JSON.parse(line);
+      const error = event?.payload?.error;
+      if (event?.type === "action_failed" && typeof error === "string" && isRequestBoundaryMessage(error)) return undefined;
+      return JSON.stringify(sanitizeEvent(event));
+    } catch {
+      return undefined;
+    }
+  }
+
+  function sanitizeEventPayload(type, payload) {
+    if (!payload || typeof payload !== "object") return payload;
+    if (type === "action_failed") {
+      return sanitizeActionFailureEventPayload(payload);
+    }
+    if (type === "job_queued" || type === "job_started" || type === "job_timeout" || type === "job_finished") {
+      return sanitizeJobEventPayload(payload);
+    }
+    if (type === "job_output") {
+      return sanitizeObjectStrings({
+        jobId: payload.jobId,
+        stream: payload.stream,
+        text: typeof payload.text === "string" ? redactSensitiveText(payload.text) : payload.text,
+        truncated: Boolean(payload.truncated)
+      });
+    }
+    if (type === "file_opened") {
+      const nextPayload = sanitizeObjectStrings(payload);
+      if (typeof payload.path === "string") nextPayload.path = "[redacted path]";
+      if (typeof nextPayload.message === "string") nextPayload.message = redactSensitiveText(nextPayload.message);
+      return nextPayload;
+    }
+    return sanitizeObjectStrings(payload);
+  }
+
+  function sanitizeJobEventPayload(payload) {
+    const safePayload = {
+      id: payload.id,
+      command: payload.command,
+      args: Array.isArray(payload.args) ? payload.args : [],
+      status: payload.status,
+      ok: Boolean(payload.ok),
+      exitCode: payload.exitCode,
+      signal: payload.signal,
+      outputTruncated: Boolean(payload.outputTruncated),
+      createdAt: payload.createdAt,
+      startedAt: payload.startedAt,
+      completedAt: payload.completedAt,
+      updatedAt: payload.updatedAt,
+      timeoutMs: payload.timeoutMs,
+      eventId: payload.eventId,
+      error: payload.error
+    };
+    return Object.fromEntries(
+      Object.entries(sanitizeObjectStrings(safePayload)).filter(([, value]) => value !== undefined)
+    );
+  }
+
+  function sanitizeActionFailureEventPayload(payload) {
+    const safePayload = {
+      error: typeof payload.error === "string" ? safeFailureMessage(redactSensitiveText(payload.error)) : payload.error,
+      category: payload.category ?? (typeof payload.error === "string" ? failureCategory(payload.error) : undefined),
+      action: payload.action,
+      endpoint: payload.endpoint,
+      method: payload.method,
+      status: payload.status,
+      requestId: payload.requestId
+    };
+    return Object.fromEntries(
+      Object.entries(safePayload).filter(([, value]) => value !== undefined)
+    );
+  }
+
+  function sanitizeObjectStrings(value) {
+    if (Array.isArray(value)) return value.map(sanitizeObjectStrings);
+    if (!value || typeof value !== "object") return typeof value === "string" ? redactSensitiveText(value) : value;
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeObjectStrings(item)]));
+  }
+
+  function redactSensitiveText(value) {
+    return redactDaemonTokens(redactFilesystemPaths(redactKnownRoots(value, [root, stateDir, eventPath, ...config.allowedRoots])));
   }
 
   function allowedOrigin() {
@@ -624,9 +716,9 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function eventSnapshotLines(path) {
+function eventSnapshotLines(path, sanitizeLine = sanitizeVisibleEventLine) {
   if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map(sanitizeVisibleEventLine).filter(Boolean).slice(-50);
+  return readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map(sanitizeLine).filter(Boolean).slice(-50);
 }
 
 function sanitizeVisibleEventLine(line) {
@@ -695,8 +787,26 @@ function safeFailureMessage(message) {
   return redactFilesystemPaths(message);
 }
 
+function redactKnownRoots(message, roots) {
+  const pathTailPattern = "[^\\r\\n\"'`]*";
+  return roots.reduce((current, sensitiveRoot) => {
+    if (typeof sensitiveRoot !== "string" || !sensitiveRoot) return current;
+    return current.replace(new RegExp(`${escapeRegExp(resolve(sensitiveRoot))}${pathTailPattern}`, "g"), "[redacted path]");
+  }, message);
+}
+
 function redactFilesystemPaths(message) {
-  return message.replace(/(^|[\s([{:])(?:[A-Za-z]:)?[\\/][^\s"'`]+/g, "$1[redacted path]");
+  return message
+    .replace(/\bfile:\/\/\/[^\s"'`]+/g, "file://[redacted path]")
+    .replace(/(^|[\s([{]|:(?!\/\/))(?:[A-Za-z]:)?[\\/][^\s"'`]+/g, "$1[redacted path]");
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function redactDaemonTokens(message) {
+  return message.replace(/(daemonToken=)[^&#\s]+/g, "$1[redacted]");
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === sourceFile) {
