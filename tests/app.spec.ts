@@ -516,6 +516,63 @@ test("keyboard traverses the graph without pointer input", async ({ page }) => {
   await expect(status).toContainText("Selected Operator Studio v2. 0 visible projects available.");
 });
 
+test("reduced motion freezes ambient graph drift while preserving graph navigation", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  const canvas = page.getByTestId("universe-canvas");
+  const status = page.getByRole("status", { name: "Graph keyboard status", includeHidden: true });
+
+  await expect(canvas).toHaveAttribute("data-reduced-motion", "true");
+  await page.waitForTimeout(800);
+  const before = await canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL("image/png"));
+  await page.waitForTimeout(900);
+  const after = await canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL("image/png"));
+  expect(after).toBe(before);
+
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+
+  await page.mouse.move(box.x + box.width * 0.48, box.y + box.height * 0.52);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.38, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+  const afterDrag = await canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL("image/png"));
+  expect(afterDrag).not.toBe(before);
+
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -260);
+  await page.keyboard.up("Control");
+  await page.waitForTimeout(250);
+  const afterWheel = await canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL("image/png"));
+  expect(afterWheel).not.toBe(afterDrag);
+
+  await canvas.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".node-cockpit").getByRole("heading", { name: "Launchable Tool" })).toBeVisible();
+  await expect(status).toContainText("Selected Launchable Tool. 1 of 9 visible projects.");
+});
+
+test("reduced motion accepts legacy matchMedia listeners", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.matchMedia = (query: string) =>
+      ({
+        matches: query === "(prefers-reduced-motion: reduce)",
+        media: query,
+        onchange: null,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => true
+      }) as unknown as MediaQueryList;
+  });
+  await page.goto("/");
+
+  const canvas = page.getByTestId("universe-canvas");
+  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveAttribute("data-reduced-motion", "true");
+});
+
 async function graphLabelOverlayAudit(page: Page) {
   return await page.evaluate(() => {
     const rectOf = (element: Element) => {

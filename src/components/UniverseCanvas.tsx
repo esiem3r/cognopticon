@@ -90,6 +90,7 @@ interface SceneRefs {
   panVelocity: Vector3;
   dollyVelocity: number;
   rotationVelocity: Vector2;
+  reducedMotion: boolean;
 }
 
 interface OverlayZone {
@@ -140,6 +141,8 @@ export function UniverseCanvas({
     scene.fog = new FogExp2("#020407", 0.0018);
 
     const camera = new PerspectiveCamera(48, 1, 1, 3800);
+    const motionQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const initialReducedMotion = Boolean(motionQuery?.matches);
     const renderer = new WebGLRenderer({
       antialias: true,
       alpha: false,
@@ -153,6 +156,7 @@ export function UniverseCanvas({
     renderer.domElement.setAttribute("aria-label", "Spatial project universe");
     renderer.domElement.setAttribute("aria-describedby", "graph-keyboard-help graph-keyboard-status");
     renderer.domElement.setAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight ArrowUp ArrowDown Home End");
+    renderer.domElement.dataset.reducedMotion = String(initialReducedMotion);
     mount.appendChild(renderer.domElement);
 
     const graphGroup = new Group();
@@ -188,9 +192,34 @@ export function UniverseCanvas({
       desiredPosition: new Vector3(0, 0, 1220),
       panVelocity: new Vector3(),
       dollyVelocity: 0,
-      rotationVelocity: new Vector2()
+      rotationVelocity: new Vector2(),
+      reducedMotion: initialReducedMotion
     };
     camera.position.copy(refs.current.desiredPosition);
+
+    const applyReducedMotionPreference = (matches: boolean) => {
+      const state = refs.current;
+      if (!state) return;
+      state.reducedMotion = matches;
+      state.renderer.domElement.dataset.reducedMotion = String(matches);
+      if (matches) {
+        state.panVelocity.set(0, 0, 0);
+        state.dollyVelocity = 0;
+        state.rotationVelocity.set(0, 0);
+        snapCameraToDesired(state);
+      }
+    };
+
+    const handleReducedMotionChange = (event: MediaQueryListEvent) => {
+      applyReducedMotionPreference(event.matches);
+    };
+    if (motionQuery) {
+      if (typeof motionQuery.addEventListener === "function") {
+        motionQuery.addEventListener("change", handleReducedMotionChange);
+      } else {
+        motionQuery.addListener?.(handleReducedMotionChange);
+      }
+    }
 
     let pointerActive = false;
     let movedDuringDrag = false;
@@ -280,13 +309,15 @@ export function UniverseCanvas({
     const animate = (time: number) => {
       const state = refs.current;
       if (!state) return;
-      state.starField.rotation.y = time * 0.000025;
-      state.projectGroup.children.forEach((child) => {
-        const spin = child.userData.spin as { x: number; y: number; z: number } | undefined;
-        child.rotation.x += spin?.x ?? 0.002;
-        child.rotation.y += spin?.y ?? 0.006;
-        child.rotation.z += spin?.z ?? 0;
-      });
+      if (!state.reducedMotion) {
+        state.starField.rotation.y = time * 0.000025;
+        state.projectGroup.children.forEach((child) => {
+          const spin = child.userData.spin as { x: number; y: number; z: number } | undefined;
+          child.rotation.x += spin?.x ?? 0.002;
+          child.rotation.y += spin?.y ?? 0.006;
+          child.rotation.z += spin?.z ?? 0;
+        });
+      }
       updateObserverOrbit(state);
       updateCamera(state);
       state.renderer.render(state.scene, state.camera);
@@ -361,6 +392,13 @@ export function UniverseCanvas({
       renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       renderer.domElement.removeEventListener("wheel", handleWheel);
       renderer.domElement.removeEventListener("keydown", handleKeyDown);
+      if (motionQuery) {
+        if (typeof motionQuery.removeEventListener === "function") {
+          motionQuery.removeEventListener("change", handleReducedMotionChange);
+        } else {
+          motionQuery.removeListener?.(handleReducedMotionChange);
+        }
+      }
       refs.current = null;
       mount.removeChild(renderer.domElement);
       renderer.dispose();
@@ -1042,11 +1080,17 @@ function updateCamera(state: SceneRefs) {
   if (state.panVelocity.lengthSq() > 0.0001) {
     state.desiredPosition.add(state.panVelocity);
     state.desiredTarget.add(state.panVelocity);
-    state.panVelocity.multiplyScalar(0.92);
+    if (state.reducedMotion) state.panVelocity.set(0, 0, 0);
+    else state.panVelocity.multiplyScalar(0.92);
   }
   if (Math.abs(state.dollyVelocity) > 0.001) {
     applyDolly(state, state.dollyVelocity);
-    state.dollyVelocity *= 0.9;
+    if (state.reducedMotion) state.dollyVelocity = 0;
+    else state.dollyVelocity *= 0.9;
+  }
+  if (state.reducedMotion) {
+    snapCameraToDesired(state);
+    return;
   }
   state.target.lerp(state.desiredTarget, 0.095);
   state.camera.position.lerp(state.desiredPosition, 0.095);
@@ -1061,7 +1105,8 @@ function updateObserverOrbit(state: SceneRefs) {
   spherical.phi = clamp(spherical.phi - state.rotationVelocity.y, 0.18, Math.PI - 0.18);
   offset.setFromSpherical(spherical);
   state.desiredPosition.copy(state.desiredTarget).add(offset);
-  state.rotationVelocity.multiplyScalar(0.93);
+  if (state.reducedMotion) state.rotationVelocity.set(0, 0);
+  else state.rotationVelocity.multiplyScalar(0.93);
 }
 
 function orbitObserver(state: SceneRefs, dx: number, dy: number) {
@@ -1134,6 +1179,7 @@ function flyToProject(state: SceneRefs, position: Vector3) {
   state.panVelocity.set(0, 0, 0);
   state.dollyVelocity = 0;
   state.rotationVelocity.set(0, 0);
+  if (state.reducedMotion) snapCameraToDesired(state);
 }
 
 function resetUniverseView(state: SceneRefs) {
@@ -1144,6 +1190,12 @@ function resetUniverseView(state: SceneRefs) {
   state.panVelocity.set(0, 0, 0);
   state.dollyVelocity = 0;
   state.rotationVelocity.set(0, 0);
+  state.camera.lookAt(state.target);
+}
+
+function snapCameraToDesired(state: SceneRefs) {
+  state.target.copy(state.desiredTarget);
+  state.camera.position.copy(state.desiredPosition);
   state.camera.lookAt(state.target);
 }
 
