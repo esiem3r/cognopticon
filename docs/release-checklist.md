@@ -44,6 +44,16 @@ The checkpoint must report its release mode, release file count, zero unstaged/u
 
 Do not call the release ready until the exact gate output is recorded in the lifecycle final report or pull request.
 
+## Hosted Repository Hardening
+
+For the canonical public repository, verify the hosted settings after the first push:
+
+```bash
+npm run validate:github -- --repo esiem3r/cognopticon
+```
+
+The hosted repository should be public, have Issues enabled, have unmaintained Projects/Wiki disabled, delete merged branches, use topics that describe the local-first graph/operator domain, and protect `main` with the hosted `Validate, Test, Build, And Audit` status check. Dependabot vulnerability alerts, automated security fixes, private vulnerability reporting, and CodeQL default setup should be enabled.
+
 ## Human Review
 
 - Review package contents with `npm pack --dry-run --json` or `npm run validate:package`.

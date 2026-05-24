@@ -21,6 +21,7 @@
     "validate:data": "node scripts/validate-data.mjs",
     "validate:release": "node scripts/validate-release-hygiene.mjs",
     "validate:community": "node scripts/validate-community-health.mjs",
+    "validate:github": "node scripts/validate-github-repo.mjs",
     "validate:package": "node scripts/validate-package-artifact.mjs",
     "validate:payload": "node scripts/validate-release-payload.mjs",
     "validate:local": "node scripts/validate-local-pipeline.mjs",
