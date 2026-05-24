@@ -28,7 +28,7 @@ npm run release:checkpoint -- --remote
 npm run check
 ```
 
-The checkpoint must report staged release files, zero unstaged/untracked release files, package artifact entries, and successful remote GitHub Action tag checks. The full gate must include:
+The checkpoint must report its release mode, release file count, zero unstaged/untracked release files, package artifact entries, and successful remote GitHub Action tag checks. The full gate must include:
 
 - `npm run validate:data`
 - `npm run validate:release`

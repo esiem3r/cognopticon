@@ -8,15 +8,19 @@ const errors = [];
 const staged = gitFiles(["diff", "--cached", "--name-only"]);
 const unstaged = gitFiles(["diff", "--name-only"]);
 const untracked = gitFiles(["ls-files", "--others", "--exclude-standard"]);
+const tracked = gitFiles(["ls-files"]);
 const stagedReleaseFiles = staged.filter(isReleasePayloadPath);
 const unstagedReleaseFiles = unstaged.filter(isReleasePayloadPath);
 const untrackedReleaseFiles = untracked.filter(isReleasePayloadPath);
+const trackedReleaseFiles = tracked.filter(isReleasePayloadPath);
+const releaseMode = stagedReleaseFiles.length ? "staged payload" : "clean committed tree";
+const checkpointReleaseFiles = stagedReleaseFiles.length ? stagedReleaseFiles : trackedReleaseFiles;
 const pack = npmPack();
 const workflowActions = parseWorkflowActions(".github/workflows/check.yml");
 const actionResults = remote ? verifyActionTags(workflowActions) : workflowActions.map((action) => ({ ...action, status: "not checked" }));
 
 if (!existsSync(".git")) errors.push("release checkpoint requires a git checkout");
-if (!stagedReleaseFiles.length) errors.push("release checkpoint requires staged release payload files");
+if (!checkpointReleaseFiles.length) errors.push("release checkpoint requires release payload files");
 for (const path of unstagedReleaseFiles) errors.push(`unstaged release payload file: ${path}`);
 for (const path of untrackedReleaseFiles) errors.push(`untracked release payload file: ${path}`);
 if (!pack) errors.push("npm pack dry-run did not return a package artifact");
@@ -33,6 +37,8 @@ if (errors.length) {
 }
 
 console.log("Cognopticon release checkpoint ready:");
+console.log(`- release mode: ${releaseMode}`);
+console.log(`- release files: ${checkpointReleaseFiles.length}`);
 console.log(`- staged release files: ${stagedReleaseFiles.length}`);
 console.log(`- unstaged release files: ${unstagedReleaseFiles.length}`);
 console.log(`- untracked release files: ${untrackedReleaseFiles.length}`);

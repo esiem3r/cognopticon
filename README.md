@@ -180,7 +180,7 @@ npm run release:checkpoint -- --remote
 npm run check
 ```
 
-`npm run release:checkpoint -- --remote` verifies the staged release payload, package artifact, and GitHub Action tags before a commit boundary. `npm run check` runs the public packaging gates in order:
+`npm run release:checkpoint -- --remote` verifies the staged release payload or clean committed tree, package artifact, and GitHub Action tags before a commit or publish boundary. `npm run check` runs the public packaging gates in order:
 
 ```bash
 npm run validate:data
