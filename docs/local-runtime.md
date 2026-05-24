@@ -43,6 +43,8 @@ During development, prefer `npm run local` for daemon-backed flows. If a Vite de
 
 `npm run validate:daemon-config` closes the on-disk bootstrap side of the same claim. It runs `local:init` in an OS temp directory for active and secondary profiles, copies the built `dist/`, starts the daemon from the generated `.cognopticon/config.json`, and verifies profile isolation, generated daemon token enforcement, active workspace loading, allowlisted job execution, encoded job polling, and redacted outside-root policy failures without reading the user's real `.cognopticon` state.
 
+`npm run validate:local` proves the documented first-run command sequence through the known npm entrypoints in an isolated temporary app root: `npm run local:init`, `npm run scan`, then `npm run analyze`. The gate strips ambient profile and Node/npm preload/config state from the child workflow runs, confirms the npm aliases still point at the expected local Node scripts, confirms all generated profile state stays under the temp root, rejects unmodeled npm lifecycle hook drift, and checks that the real repository `.cognopticon/` tree was not modified.
+
 Capabilities:
 
 - health check
