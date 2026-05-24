@@ -21,6 +21,7 @@ const forbiddenPatterns = [
   /^_cognopticon_safety\//,
   /^\.env(?:\.|$)/,
   /^dist\//,
+  /^dist-pages\//,
   /^missions\//,
   /^node_modules\//,
   /^playwright-report\//,

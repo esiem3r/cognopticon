@@ -1,6 +1,6 @@
 export function isReleasePayloadPath(path) {
   if (!path) return false;
-  if (path.startsWith(".cognopticon/") || path.startsWith("dist/") || path.startsWith("node_modules/")) return false;
+  if (path.startsWith(".cognopticon/") || path.startsWith("dist/") || path.startsWith("dist-pages/") || path.startsWith("node_modules/")) return false;
   if (path.startsWith("test-results/") || path.startsWith("playwright-report/") || path.startsWith("_cognopticon_safety/")) return false;
   return path === ".gitignore"
     || path === ".npmignore"

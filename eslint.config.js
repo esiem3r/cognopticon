@@ -5,13 +5,13 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default [
-  { ignores: ["dist", "node_modules", "test-results", "playwright-report"] },
+  { ignores: ["dist", "dist-pages", "node_modules", "test-results", "playwright-report"] },
   ...tseslint.configs.recommended,
   {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2022,
-      globals: globals.browser,
+      globals: { ...globals.browser, __COGNOPTICON_PUBLIC_DEMO__: "readonly" },
       parser: tseslint.parser,
       parserOptions: {
         ecmaFeatures: { jsx: true },

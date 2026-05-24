@@ -61,6 +61,8 @@ Default gates:
 - `npm run lint`
 - `npm test`
 - `npm run build`
+- `npm run build:pages`
+- `npm run validate:pages`
 - `npm run validate:daemon`
 - `npm run validate:daemon-config`
 - `npm run audit:ux`
@@ -68,4 +70,4 @@ Default gates:
 
 The matching personal Codex skill is `cognopticon-lifecycle`. It keeps the workflow reusable across sessions and machines while Cognopticon records the artifacts per profile.
 
-Public pull requests and pushes to `main` should pass `.github/workflows/check.yml`, which runs the same `npm run check` gate after `npm ci` and Playwright Chromium installation.
+Public pull requests and pushes to `main` should pass `.github/workflows/check.yml`, which runs the same `npm run check` gate after `npm ci` and Playwright Chromium installation. Pushes to `main` should also pass `.github/workflows/pages.yml`, which reruns the full gate, then builds, validates, uploads, and deploys only the sanitized static Pages artifact.

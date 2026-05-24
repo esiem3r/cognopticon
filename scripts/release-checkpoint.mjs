@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { isReleasePayloadPath } from "./release-paths.mjs";
 
 const remote = process.argv.includes("--remote");
@@ -16,7 +16,7 @@ const trackedReleaseFiles = tracked.filter(isReleasePayloadPath);
 const releaseMode = stagedReleaseFiles.length ? "staged payload" : "clean committed tree";
 const checkpointReleaseFiles = stagedReleaseFiles.length ? stagedReleaseFiles : trackedReleaseFiles;
 const pack = npmPack();
-const workflowActions = parseWorkflowActions(".github/workflows/check.yml");
+const workflowActions = parseWorkflowActions();
 const actionResults = remote ? verifyActionTags(workflowActions) : workflowActions.map((action) => ({ ...action, status: "not checked" }));
 
 if (!existsSync(".git")) errors.push("release checkpoint requires a git checkout");
@@ -62,15 +62,25 @@ function npmPack() {
   }
 }
 
-function parseWorkflowActions(path) {
-  if (!existsSync(path)) return [];
-  const text = readFileSync(path, "utf8");
+function parseWorkflowActions() {
   const actions = [];
-  const pattern = /^\s*uses:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)@([A-Za-z0-9_.-]+)\s*$/gm;
-  for (const match of text.matchAll(pattern)) {
-    actions.push({ ownerRepo: match[1], ref: match[2] });
+  for (const path of workflowFiles()) {
+    const text = readFileSync(path, "utf8");
+    const pattern = /^\s*uses:\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)@([A-Za-z0-9_.-]+)\s*$/gm;
+    for (const match of text.matchAll(pattern)) {
+      actions.push({ ownerRepo: match[1], ref: match[2] });
+    }
   }
   return actions;
+}
+
+function workflowFiles() {
+  const workflowDir = ".github/workflows";
+  if (!existsSync(workflowDir)) return [];
+  return readdirSync(workflowDir)
+    .filter((name) => /\.(ya?ml)$/i.test(name))
+    .sort()
+    .map((name) => `${workflowDir}/${name}`);
 }
 
 function verifyActionTags(actions) {
