@@ -22,6 +22,9 @@ export function LaunchPort({
   useEffect(() => {
     setCopyStatus("");
   }, [node.id, manualCommandText]);
+  useEffect(() => {
+    if (runStatus) setCopyStatus("");
+  }, [runStatus]);
 
   if (!node.launch) {
     return (
@@ -43,6 +46,10 @@ export function LaunchPort({
       setCopyStatus("Clipboard unavailable. Command remains visible above.");
     }
   }
+  function runLaunchCommand() {
+    setCopyStatus("");
+    onRun();
+  }
   return (
     <section className="launch-port" aria-label={`${node.name} launch port`}>
       <span>LaunchPort / {daemonStatus.online ? "daemon-ready" : "copy fallback"}</span>
@@ -54,7 +61,7 @@ export function LaunchPort({
           : "Daemon is offline. Copy the allowlisted command or generate a mission packet; no local action will be run from the browser."}
       </p>
       <div className="launch-actions">
-        <button type="button" onClick={onRun} disabled={!daemonStatus.online || !command}>
+        <button type="button" onClick={runLaunchCommand} disabled={!daemonStatus.online || !command}>
           Run
         </button>
         {command && <button type="button" onClick={() => void copyCommand()}>Copy Command</button>}

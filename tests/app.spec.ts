@@ -121,6 +121,52 @@ test("launch port reports clipboard failure without hiding the command", async (
   await expect(launchPort.getByRole("status")).toContainText("Clipboard unavailable. Command remains visible above.");
 });
 
+test("launch port run status replaces previous copy feedback", async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/api/health")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/events")) {
+        return Promise.resolve(new Response("event: snapshot\ndata: []\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" }
+        }));
+      }
+      if (/\/api\/jobs$/.test(url)) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "Daemon refused launch for test" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      return originalFetch(input, init);
+    };
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () => Promise.resolve()
+      }
+    });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("Search projects").fill("launchable");
+  const launchPort = page.getByLabel("Launchable Tool launch port");
+
+  await expect(launchPort.getByRole("button", { name: "Run" })).toBeEnabled();
+  await launchPort.getByRole("button", { name: "Copy Command" }).click();
+  await expect(launchPort.getByRole("status")).toContainText("Command copied:");
+
+  await launchPort.getByRole("button", { name: "Run" }).click();
+  await expect(launchPort.getByRole("status")).toContainText("Daemon refused launch for test");
+  await expect(launchPort.getByRole("status")).not.toContainText("Command copied:");
+});
+
 test("orchestrator access arms the visualizer without exposing workers", async ({ page }) => {
   await page.goto("/?daemon=off");
   await page.getByRole("button", { name: "Start Orchestrator" }).click();
