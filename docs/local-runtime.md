@@ -41,6 +41,8 @@ During development, prefer `npm run local` for daemon-backed flows. If a Vite de
 
 `npm run validate:daemon` is the release smoke test for local runtime mode. It requires a built `dist/`, starts the real daemon on an ephemeral loopback port with a temporary profile under the OS temp directory, verifies built assets, dev-origin token enforcement, profile listing, profile workspace loading, browser app startup from the daemon origin, a UI-triggered allowlisted `npm test`, a direct local `node` job with `shell: false`, URL-encoded job polling, and a persisted event log containing successful jobs plus a redacted outside-root policy rejection.
 
+`npm run validate:daemon-config` closes the on-disk bootstrap side of the same claim. It runs `local:init` in an OS temp directory for active and secondary profiles, copies the built `dist/`, starts the daemon from the generated `.cognopticon/config.json`, and verifies profile isolation, generated daemon token enforcement, active workspace loading, allowlisted job execution, encoded job polling, and redacted outside-root policy failures without reading the user's real `.cognopticon` state.
+
 Capabilities:
 
 - health check

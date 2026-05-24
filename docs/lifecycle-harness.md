@@ -62,6 +62,7 @@ Default gates:
 - `npm test`
 - `npm run build`
 - `npm run validate:daemon`
+- `npm run validate:daemon-config`
 - `npm run audit:ux`
 - `npm run test:e2e`
 
