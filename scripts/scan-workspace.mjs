@@ -5,9 +5,10 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import roots from "../src/data/workspace-roots.json" with { type: "json" };
 import { loadRuntimeConfig } from "./runtime-config.mjs";
 
-const runtimeConfig = loadRuntimeConfig(process.cwd());
-const outputPath = argValue("--write") ?? (hasFlag("--profile-output") ? runtimeConfig.profile.paths.rawWorkspace : undefined);
-const reviewPath = argValue("--review") ?? runtimeConfig.profile.paths.review;
+const profileOutputRequested = hasFlag("--profile-output");
+const runtimeConfig = loadRuntimeConfig(process.cwd(), { requireInitialized: profileOutputRequested });
+const outputPath = argValue("--write") ?? (profileOutputRequested ? runtimeConfig.profile.paths.rawWorkspace : undefined);
+const reviewPath = argValue("--review") ?? (profileOutputRequested ? runtimeConfig.profile.paths.review : undefined);
 const rootsFlag = argValue("--roots");
 const scanRoots = rootsFlag ? parseRoots(rootsFlag) : defaultScanRoots(runtimeConfig);
 
@@ -16,7 +17,7 @@ const payload = await scanWorkspace(scanRoots, runtimeConfig.scan, runtimeConfig
 if (outputPath) {
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-  writeReviewFile(reviewPath, payload);
+  if (reviewPath) writeReviewFile(reviewPath, payload);
 } else {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
 }

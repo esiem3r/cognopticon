@@ -3,10 +3,13 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { basename, dirname, join } from "node:path";
 import { loadRuntimeConfig } from "./runtime-config.mjs";
 
-const runtimeConfig = loadRuntimeConfig();
-const inputPath = argValue("--input") ?? runtimeConfig.profile.paths.rawWorkspace;
-const outputPath = argValue("--output") ?? runtimeConfig.profile.paths.workspace;
-const enrichmentDir = argValue("--enrichments") ?? runtimeConfig.profile.paths.enrichments;
+const inputArg = argValue("--input");
+const outputArg = argValue("--output");
+const enrichmentArg = argValue("--enrichments");
+const runtimeConfig = loadRuntimeConfig(process.cwd(), { requireInitialized: !inputArg || !outputArg });
+const inputPath = inputArg ?? runtimeConfig.profile.paths.rawWorkspace;
+const outputPath = outputArg ?? runtimeConfig.profile.paths.workspace;
+const enrichmentDir = enrichmentArg ?? runtimeConfig.profile.paths.enrichments;
 const maxProjects = runtimeConfig.scan.maxProjects;
 
 if (!existsSync(inputPath)) {

@@ -10,6 +10,8 @@ npm run local:init -- --profile "$(hostname)" --roots "/path/to/projects,/anothe
 
 The daemon reads `.cognopticon/config.json`.
 
+Run `npm run local:init` before `npm run local`, `npm run scan`, or `npm run analyze`. Profile-scoped commands fail closed when no local profile has been initialized.
+
 Default configuration:
 
 - host: `127.0.0.1`
@@ -33,7 +35,7 @@ Local generated data is profile-scoped:
   loops/
 ```
 
-Set `COGNOPTICON_PROFILE=<profile>` to scan, analyze, enrich, or run a different machine/profile. Unknown profile names fail closed instead of scanning the repo root. `public/workspace.json` is not the local runtime target; leaving personal workspace data there is a release hygiene failure.
+Set `COGNOPTICON_PROFILE=<profile>` to scan, analyze, enrich, or run a different machine/profile. Unknown profile names and undeclared `activeProfile` values fail closed instead of scanning the repo root. A named profile is valid only when `.cognopticon/config.json` declares it with explicit `allowedRoots`, and any profile path overrides must remain under `.cognopticon/profiles/<profile>/`. `public/workspace.json` is not the local runtime target; leaving personal workspace data there is a release hygiene failure.
 
 During development, prefer `npm run local` for daemon-backed flows. If a Vite dev server must call the daemon, add that origin through local config and open the app with `#daemonToken=<token from .cognopticon/config.json>`. The fragment is stripped from the visible URL and the browser keeps the token in `sessionStorage` for the current tab. Daemon API calls send the token in the `X-Cognopticon-Token` header; query-string tokens are rejected.
 
@@ -55,4 +57,4 @@ Command policy:
 - `node` must run one explicit local `.js` or `.mjs` script inside an allowed root.
 - destructive markers are rejected before spawn.
 
-Private state remains under `.cognopticon/`. With profile runtime enabled, the daemon serves only the active profile workspace or the sanitized demo fallback. Legacy `.cognopticon/state/workspace.json` and `public/workspace.json` are only fallback compatibility paths for non-profile daemon configurations.
+Private state remains under `.cognopticon/`. The daemon requires initialized local runtime config for normal startup, then serves only the active profile workspace or the sanitized demo fallback. Legacy `.cognopticon/state/workspace.json` and `public/workspace.json` are not daemon workspace sources.

@@ -76,6 +76,140 @@ describe("workspace scan and analysis pipeline", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('Unknown Cognopticon profile "typo-profile"');
   });
+
+  it("requires local init before writing profile-scoped scan output", () => {
+    const configRoot = mkdtempSync(join(tmpdir(), "cognopticon-uninitialized-profile-"));
+    createProject(join(configRoot, "local-tool"), "local-tool");
+
+    const profileOutput = spawnSync(process.execPath, [scriptPath("scripts/scan-workspace.mjs"), "--profile-output"], {
+      cwd: configRoot,
+      encoding: "utf8",
+      env: { ...process.env, COGNOPTICON_PROFILE: undefined }
+    });
+    expect(profileOutput.status).not.toBe(0);
+    expect(profileOutput.stderr).toContain("Cognopticon local profile is not initialized");
+
+    mkdirSync(join(configRoot, ".cognopticon"), { recursive: true });
+    writeFileSync(join(configRoot, ".cognopticon", "config.json"), `${JSON.stringify({ allowedRoots: [configRoot] }, null, 2)}\n`, "utf8");
+    const legacyConfig = spawnSync(process.execPath, [scriptPath("scripts/scan-workspace.mjs"), "--profile-output"], {
+      cwd: configRoot,
+      encoding: "utf8",
+      env: { ...process.env, COGNOPTICON_PROFILE: undefined }
+    });
+    expect(legacyConfig.status).not.toBe(0);
+    expect(legacyConfig.stderr).toContain("Cognopticon local profile is not initialized");
+
+    const explicitOutput = join(configRoot, "workspace.raw.json");
+    runNode([
+      scriptPath("scripts/scan-workspace.mjs"),
+      "--roots",
+      configRoot,
+      "--write",
+      explicitOutput,
+      "--review",
+      join(configRoot, "review.json")
+    ], configRoot, { COGNOPTICON_PROFILE: undefined });
+    const raw = JSON.parse(readFileSync(explicitOutput, "utf8"));
+    expect(raw.candidates.map((candidate: { path: string }) => candidate.path)).toContain(join(configRoot, "local-tool"));
+  });
+
+  it("requires explicit roots when initializing a local profile", () => {
+    const configRoot = mkdtempSync(join(tmpdir(), "cognopticon-init-roots-"));
+    const result = spawnSync(process.execPath, [scriptPath("scripts/local-init.mjs"), "--profile", "missing-roots"], {
+      cwd: configRoot,
+      encoding: "utf8",
+      env: { ...process.env, COGNOPTICON_PROFILE: undefined }
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Missing required --roots");
+  });
+
+  it("fails closed when env or active profiles are not declared by local config", () => {
+    const configRoot = mkdtempSync(join(tmpdir(), "cognopticon-legacy-profile-"));
+    const projectRoot = join(configRoot, "projects");
+    createProject(join(projectRoot, "local-tool"), "local-tool");
+    mkdirSync(join(configRoot, ".cognopticon"), { recursive: true });
+    writeFileSync(join(configRoot, ".cognopticon", "config.json"), `${JSON.stringify({ allowedRoots: [projectRoot] }, null, 2)}\n`, "utf8");
+
+    const typo = spawnSync(process.execPath, [scriptPath("scripts/scan-workspace.mjs"), "--profile-output"], {
+      cwd: configRoot,
+      encoding: "utf8",
+      env: { ...process.env, COGNOPTICON_PROFILE: "typo-profile" }
+    });
+    expect(typo.status).not.toBe(0);
+    expect(typo.stderr).toContain('Unknown Cognopticon profile "typo-profile"');
+
+    writeFileSync(join(configRoot, ".cognopticon", "config.json"), `${JSON.stringify({ activeProfile: "ghost", allowedRoots: [projectRoot] }, null, 2)}\n`, "utf8");
+    const ghost = spawnSync(process.execPath, [scriptPath("scripts/scan-workspace.mjs"), "--profile-output"], {
+      cwd: configRoot,
+      encoding: "utf8",
+      env: { ...process.env, COGNOPTICON_PROFILE: undefined }
+    });
+    expect(ghost.status).not.toBe(0);
+    expect(ghost.stderr).toContain('Unknown Cognopticon profile "ghost"');
+  });
+
+  it("uses a declared singleton profile without falling back to default", () => {
+    const configRoot = mkdtempSync(join(tmpdir(), "cognopticon-single-profile-"));
+    const projectRoot = join(configRoot, "projects");
+    createProject(join(projectRoot, "solo-tool"), "solo-tool");
+    mkdirSync(join(configRoot, ".cognopticon"), { recursive: true });
+    writeFileSync(join(configRoot, ".cognopticon", "config.json"), `${JSON.stringify({
+      profile: { id: "solo", label: "Solo", allowedRoots: [projectRoot] }
+    }, null, 2)}\n`, "utf8");
+
+    runNode([scriptPath("scripts/scan-workspace.mjs"), "--profile-output"], configRoot, { COGNOPTICON_PROFILE: undefined });
+
+    const raw = JSON.parse(readFileSync(join(configRoot, ".cognopticon", "profiles", "solo", "state", "workspace.raw.json"), "utf8"));
+    expect(raw.profile.id).toBe("solo");
+    expect(raw.roots).toEqual([projectRoot]);
+  });
+
+  it("fails closed when a declared profile has no roots", () => {
+    const configRoot = mkdtempSync(join(tmpdir(), "cognopticon-rootless-profile-"));
+    mkdirSync(join(configRoot, ".cognopticon"), { recursive: true });
+    writeFileSync(join(configRoot, ".cognopticon", "config.json"), `${JSON.stringify({
+      profiles: { rootless: { id: "rootless", label: "Rootless" } },
+      activeProfile: "rootless"
+    }, null, 2)}\n`, "utf8");
+
+    const result = spawnSync(process.execPath, [scriptPath("scripts/scan-workspace.mjs"), "--profile-output"], {
+      cwd: configRoot,
+      encoding: "utf8",
+      env: { ...process.env, COGNOPTICON_PROFILE: undefined }
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Cognopticon profile "rootless" must declare allowedRoots');
+  });
+
+  it("fails closed when profile path overrides escape the profile directory", () => {
+    const configRoot = mkdtempSync(join(tmpdir(), "cognopticon-path-escape-"));
+    const projectRoot = join(configRoot, "projects");
+    createProject(join(projectRoot, "local-tool"), "local-tool");
+    mkdirSync(join(configRoot, ".cognopticon"), { recursive: true });
+    writeFileSync(join(configRoot, ".cognopticon", "config.json"), `${JSON.stringify({
+      activeProfile: "laptop",
+      profiles: {
+        laptop: {
+          id: "laptop",
+          label: "Laptop",
+          allowedRoots: [projectRoot],
+          paths: { workspace: "../../public/workspace.json" }
+        }
+      }
+    }, null, 2)}\n`, "utf8");
+
+    const result = spawnSync(process.execPath, [scriptPath("scripts/scan-workspace.mjs"), "--profile-output"], {
+      cwd: configRoot,
+      encoding: "utf8",
+      env: { ...process.env, COGNOPTICON_PROFILE: undefined }
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Cognopticon profile path "workspace" must stay under');
+  });
 });
 
 function createProject(path: string, name: string) {

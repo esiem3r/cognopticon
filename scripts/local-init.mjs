@@ -5,8 +5,16 @@ import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { normalizeProfile, normalizeProfileId } from "./runtime-config.mjs";
 
-const rootsArg = process.argv.includes("--roots") ? process.argv[process.argv.indexOf("--roots") + 1] : process.cwd();
+const rootsArg = argValue("--roots");
+if (!rootsArg) {
+  console.error('Missing required --roots "/path/to/projects,/another/root".');
+  process.exit(1);
+}
 const roots = rootsArg.split(",").map((root) => resolve(root.trim())).filter(Boolean);
+if (!roots.length) {
+  console.error('At least one --roots entry is required.');
+  process.exit(1);
+}
 const profileId = normalizeProfileId(argValue("--profile") ?? hostname());
 const existing = existsSync(".cognopticon/config.json") ? JSON.parse(readFileSync(".cognopticon/config.json", "utf8")) : {};
 const profile = normalizeProfile(process.cwd(), profileId, {

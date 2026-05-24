@@ -88,7 +88,7 @@ Cognopticon uses local profiles so different machines do not pollute each other.
   loops/
 ```
 
-Choose a profile with `--profile` during init or with `COGNOPTICON_PROFILE=<profile>` when running commands.
+Choose a profile with `--profile` during init or with `COGNOPTICON_PROFILE=<profile>` when running commands. `local:init` requires explicit `--roots`; named profiles fail closed: the requested profile must be declared in `.cognopticon/config.json` with explicit `allowedRoots`, and profile state paths must stay under `.cognopticon/profiles/<profile>/`, or the runtime aborts instead of silently scanning the repository root.
 
 ## Architecture
 

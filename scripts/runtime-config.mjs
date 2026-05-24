@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 export const defaultRuntimeConfig = {
   activeProfile: "default",
@@ -27,16 +27,23 @@ export const defaultRuntimeConfig = {
   }
 };
 
-export function loadRuntimeConfig(root = process.cwd()) {
-  const configPath = resolve(root, ".cognopticon", "config.json");
-  const local = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : {};
+export function loadRuntimeConfig(root = process.cwd(), options = {}) {
+  const configPath = options.configPath === false ? undefined : resolve(root, options.configPath ?? ".cognopticon/config.json");
+  const hasLocalConfig = Boolean(configPath && existsSync(configPath));
+  const local = hasLocalConfig ? JSON.parse(readFileSync(configPath, "utf8")) : {};
+  const hasProfileDeclaration = hasDeclaredProfile(local);
   const merged = mergeConfig(defaultRuntimeConfig, local);
+  merged.initialized = hasProfileDeclaration;
   const envProfile = process.env.COGNOPTICON_PROFILE;
-  if (envProfile && !existsSync(configPath)) {
-    throw new Error(`Unknown Cognopticon profile "${normalizeProfileId(envProfile)}". Run npm run local:init -- --profile "${normalizeProfileId(envProfile)}" --roots "/path/to/projects" first.`);
+  const configuredActiveProfile = local.activeProfile ?? local.profile?.id;
+  const activeProfileId = normalizeProfileId(envProfile ?? configuredActiveProfile ?? merged.activeProfile ?? "default");
+  if (envProfile && !hasLocalConfig) throw unknownProfileError(activeProfileId);
+  if (envProfile && !hasProfileDeclaration) throw unknownProfileError(activeProfileId);
+  if (options.requireInitialized && !hasProfileDeclaration) {
+    if (configuredActiveProfile && activeProfileId !== "default") throw unknownProfileError(activeProfileId);
+    throw uninitializedProfileError();
   }
-  const activeProfileId = normalizeProfileId(envProfile ?? merged.activeProfile ?? merged.profile?.id ?? "default");
-  const profileInput = profileConfigFor(merged, activeProfileId);
+  const profileInput = profileConfigFor(merged, activeProfileId, { envProfileRequested: Boolean(envProfile) });
   merged.activeProfile = activeProfileId;
   merged.profile = normalizeProfile(root, activeProfileId, profileInput);
   merged.scan.maxDepth = numberFromEnv("COGNOPTICON_SCAN_DEPTH", merged.scan.maxDepth);
@@ -62,7 +69,7 @@ export function normalizeProfile(root, id, profile = {}) {
   const allowedRoots = Array.isArray(profile.allowedRoots) && profile.allowedRoots.length
     ? profile.allowedRoots.map((allowedRoot) => resolve(root, allowedRoot))
     : [resolve(root)];
-  const paths = {
+  const defaultPaths = {
     rootDir: profileRoot,
     stateDir: join(profileRoot, "state"),
     rawWorkspace: join(profileRoot, "state", "workspace.raw.json"),
@@ -79,24 +86,67 @@ export function normalizeProfile(root, id, profile = {}) {
     label: profile.label ?? safeId,
     deviceId: profile.deviceId ?? normalizeProfileId(hostname()),
     allowedRoots,
-    paths: { ...paths, ...(profile.paths ?? {}) }
+    paths: normalizeProfilePaths(root, profileRoot, defaultPaths, profile.paths)
   };
 }
 
-function profileConfigFor(config, id) {
+function profileConfigFor(config, id, options = {}) {
   const configuredProfiles = config.profiles && Object.keys(config.profiles).length ? config.profiles : undefined;
   if (configuredProfiles && !configuredProfiles[id]) {
-    throw new Error(`Unknown Cognopticon profile "${id}". Run npm run local:init -- --profile "${id}" --roots "/path/to/projects" first.`);
+    throw unknownProfileError(id);
   }
-  const declared = configuredProfiles?.[id] ?? (config.profile?.id === id ? config.profile : {});
+  const singletonProfileId = config.profile?.id ? normalizeProfileId(config.profile.id) : undefined;
+  if (singletonProfileId && singletonProfileId !== id) throw unknownProfileError(id);
+  if (!configuredProfiles && !singletonProfileId && id !== "default" && (options.envProfileRequested || normalizeProfileId(config.activeProfile) === id)) {
+    throw unknownProfileError(id);
+  }
+  const declared = configuredProfiles?.[id] ?? (singletonProfileId === id ? config.profile : {});
   const legacyAllowedRoots = Array.isArray(config.allowedRoots) ? config.allowedRoots : [];
   const scanRoots = Array.isArray(config.scan?.roots) ? config.scan.roots : [];
-  return mergeConfig({
+  const profile = mergeConfig({
     id,
     label: id,
     deviceId: normalizeProfileId(hostname()),
     allowedRoots: legacyAllowedRoots.length ? legacyAllowedRoots : scanRoots
   }, declared);
+  if ((configuredProfiles || singletonProfileId) && (!Array.isArray(profile.allowedRoots) || profile.allowedRoots.length === 0)) {
+    throw new Error(`Cognopticon profile "${id}" must declare allowedRoots. Run npm run local:init -- --profile "${id}" --roots "/path/to/projects" first.`);
+  }
+  return profile;
+}
+
+function unknownProfileError(id) {
+  return new Error(`Unknown Cognopticon profile "${id}". Run npm run local:init -- --profile "${id}" --roots "/path/to/projects" first.`);
+}
+
+function uninitializedProfileError() {
+  return new Error('Cognopticon local profile is not initialized. Run npm run local:init -- --profile "<profile>" --roots "/path/to/projects" first.');
+}
+
+function normalizeProfilePaths(root, profileRoot, defaultPaths, overrides = {}) {
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) return defaultPaths;
+  const paths = { ...defaultPaths };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (!(key in defaultPaths)) throw new Error(`Unsupported Cognopticon profile path override: ${key}`);
+    if (key === "rootDir") throw new Error("Cognopticon profile rootDir cannot be overridden; profile state must stay under .cognopticon/profiles/<profile>.");
+    if (typeof value !== "string" || !value.trim()) throw new Error(`Cognopticon profile path "${key}" must be a non-empty string.`);
+    const resolved = value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) ? resolve(value) : resolve(profileRoot, value);
+    if (!isInside(resolved, profileRoot)) {
+      throw new Error(`Cognopticon profile path "${key}" must stay under ${profileRoot}.`);
+    }
+    paths[key] = resolved;
+  }
+  return paths;
+}
+
+function isInside(target, root) {
+  const resolvedTarget = resolve(target);
+  const resolvedRoot = resolve(root);
+  return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(`${resolvedRoot}${sep}`);
+}
+
+function hasDeclaredProfile(config) {
+  return Boolean(config?.profile?.id || config?.profiles && Object.keys(config.profiles).length);
 }
 
 export function mergeConfig(base, override) {
