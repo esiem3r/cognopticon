@@ -35,7 +35,7 @@ Local generated data is profile-scoped:
 
 Set `COGNOPTICON_PROFILE=<profile>` to scan, analyze, enrich, or run a different machine/profile. Unknown profile names fail closed instead of scanning the repo root. `public/workspace.json` is not the local runtime target; leaving personal workspace data there is a release hygiene failure.
 
-During development, prefer `npm run local` for daemon-backed flows. If a Vite dev server must call the daemon, add that origin through local config and open the app with `?daemonToken=<token from .cognopticon/config.json>`; the browser stores the token locally for subsequent daemon calls.
+During development, prefer `npm run local` for daemon-backed flows. If a Vite dev server must call the daemon, add that origin through local config and open the app with `#daemonToken=<token from .cognopticon/config.json>`. The fragment is stripped from the visible URL and the browser keeps the token in `sessionStorage` for the current tab. Daemon API calls send the token in the `X-Cognopticon-Token` header; query-string tokens are rejected.
 
 Capabilities:
 

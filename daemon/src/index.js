@@ -63,6 +63,7 @@ export function createDaemon(options = {}) {
       assertAllowedRequestOrigin(request);
       if (!request.url) return send(response, 404, { error: "missing url" });
       const url = new URL(request.url, `http://${config.host}:${config.port}`);
+      if (url.searchParams.has("daemonToken")) throw new Error("Cognopticon daemon token must be sent in X-Cognopticon-Token header");
       if (url.pathname === "/api/health") return send(response, 200, {
         ok: true,
         daemon: "cognopticon",
@@ -453,15 +454,11 @@ export function createDaemon(options = {}) {
   }
 
   function requestToken(request) {
+    if (requestHasQueryToken(request)) throw new Error("Cognopticon daemon token must be sent in X-Cognopticon-Token header");
     const header = request.headers["x-cognopticon-token"];
     if (typeof header === "string") return header;
     if (Array.isArray(header)) return header[0];
-    try {
-      const url = new URL(request.url ?? "/", `http://${config.host}:${config.port}`);
-      return url.searchParams.get("daemonToken") ?? undefined;
-    } catch {
-      return undefined;
-    }
+    return undefined;
   }
 
   function failurePayloadFor(request, error) {
@@ -649,7 +646,18 @@ function sanitizeVisibleEventLine(line) {
 }
 
 function isRequestBoundaryMessage(message) {
-  return message.startsWith("Origin is not allowed:") || message === "Cognopticon daemon token is required for this origin";
+  return message.startsWith("Origin is not allowed:")
+    || message === "Cognopticon daemon token is required for this origin"
+    || message === "Cognopticon daemon token must be sent in X-Cognopticon-Token header";
+}
+
+function requestHasQueryToken(request) {
+  try {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    return url.searchParams.has("daemonToken");
+  } catch {
+    return false;
+  }
 }
 
 function actionForEndpoint(endpoint) {

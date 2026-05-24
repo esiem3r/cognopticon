@@ -106,7 +106,11 @@ function requestDetail(payload: RuntimePayload | undefined) {
 }
 
 function isRequestBoundaryFailure(error: string | undefined) {
-  return Boolean(error && (error.startsWith("Origin is not allowed:") || error === "Cognopticon daemon token is required for this origin"));
+  return Boolean(error && (
+    error.startsWith("Origin is not allowed:")
+    || error === "Cognopticon daemon token is required for this origin"
+    || error === "Cognopticon daemon token must be sent in X-Cognopticon-Token header"
+  ));
 }
 
 function humanize(value: string) {
