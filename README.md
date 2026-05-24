@@ -72,6 +72,7 @@ The daemon is not a hidden autonomous agent. It provides a local bridge for:
 - recording orchestrator task completion or reopening
 
 Worker agents remain outside the daemon boundary. Mission packets are the handoff format, and unavailable adapters fall back to manual copy instead of pretending to dispatch.
+The mission drawer can copy the full brief or a bounded worker prompt for a second Codex terminal. The worker prompt is generated only from the validated packet fields, and neither path starts an agent or daemon job.
 
 ## Codex Supervisory Goal
 
