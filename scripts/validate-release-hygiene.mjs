@@ -124,9 +124,9 @@ for (const required of [
   "actions/checkout@v6",
   "actions/setup-node@v6",
   "npx playwright install --with-deps chromium",
-  "actions/configure-pages@v5",
-  "actions/upload-pages-artifact@v4",
-  "actions/deploy-pages@v4",
+  "actions/configure-pages@v6",
+  "actions/upload-pages-artifact@v5",
+  "actions/deploy-pages@v5",
   "npm run check",
   "path: dist-pages"
 ]) {
