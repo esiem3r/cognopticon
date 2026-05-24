@@ -554,6 +554,25 @@ test("reduced motion freezes ambient graph drift while preserving graph navigati
   await expect(status).toContainText("Selected Launchable Tool. 1 of 9 visible projects.");
 });
 
+test("reduced motion accepts legacy matchMedia listeners", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.matchMedia = (query: string) =>
+      ({
+        matches: query === "(prefers-reduced-motion: reduce)",
+        media: query,
+        onchange: null,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => true
+      }) as unknown as MediaQueryList;
+  });
+  await page.goto("/");
+
+  const canvas = page.getByTestId("universe-canvas");
+  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveAttribute("data-reduced-motion", "true");
+});
+
 async function graphLabelOverlayAudit(page: Page) {
   return await page.evaluate(() => {
     const rectOf = (element: Element) => {

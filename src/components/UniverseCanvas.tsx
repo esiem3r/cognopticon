@@ -213,7 +213,13 @@ export function UniverseCanvas({
     const handleReducedMotionChange = (event: MediaQueryListEvent) => {
       applyReducedMotionPreference(event.matches);
     };
-    motionQuery?.addEventListener("change", handleReducedMotionChange);
+    if (motionQuery) {
+      if (typeof motionQuery.addEventListener === "function") {
+        motionQuery.addEventListener("change", handleReducedMotionChange);
+      } else {
+        motionQuery.addListener?.(handleReducedMotionChange);
+      }
+    }
 
     let pointerActive = false;
     let movedDuringDrag = false;
@@ -386,7 +392,13 @@ export function UniverseCanvas({
       renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       renderer.domElement.removeEventListener("wheel", handleWheel);
       renderer.domElement.removeEventListener("keydown", handleKeyDown);
-      motionQuery?.removeEventListener("change", handleReducedMotionChange);
+      if (motionQuery) {
+        if (typeof motionQuery.removeEventListener === "function") {
+          motionQuery.removeEventListener("change", handleReducedMotionChange);
+        } else {
+          motionQuery.removeListener?.(handleReducedMotionChange);
+        }
+      }
       refs.current = null;
       mount.removeChild(renderer.domElement);
       renderer.dispose();
