@@ -67,6 +67,28 @@ describe("runtime event presentation", () => {
     expect(runtimeEventView(first).detail).toBe("POST /api/orchestrator/task-event / request:1");
     expect(runtimeEventView(second).detail).toBe("POST /api/orchestrator/task-event / request:2");
   });
+
+  it("renders redacted job lifecycle events as useful status", () => {
+    const event = runtimeEvent({
+      type: "job_finished",
+      payload: {
+        id: "job:1",
+        command: "node",
+        args: ["proof.mjs"],
+        status: "completed",
+        ok: true
+      }
+    });
+
+    const view = runtimeEventView(event);
+    expect(view).toMatchObject({
+      label: "job finished",
+      summary: "node proof.mjs / completed",
+      detail: "job:1",
+      state: "completed"
+    });
+    expect(JSON.stringify(view)).not.toContain("/home/user/private");
+  });
 });
 
 function runtimeEvent({

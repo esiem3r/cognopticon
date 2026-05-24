@@ -169,6 +169,74 @@ describe("cognopticon daemon endpoints", () => {
     expect(events.map((event) => event.type)).toEqual(["job_queued", "job_started", "job_output", "job_finished"]);
   });
 
+  it("redacts successful job event payloads before persisting and streaming", async () => {
+    let privatePath = "";
+    const diagnosticPath = join(tmpdir(), "outside-diagnostics", "secret.txt");
+    const windowsPath = "C:\\Users\\User\\secret.txt";
+    const spawn = createSpawnStub({
+      stdout: ({ options }) => {
+        privatePath = join(options.cwd, "private project", "secret.txt");
+        return `green ${privatePath}\ncwd:${diagnosticPath}\nfile://${diagnosticPath}\n`;
+      },
+      stderr: `warn ${windowsPath}\n`
+    });
+    const { url, root } = await startTestDaemon({ spawn });
+    const liveResponse = await fetch(`${url}/api/events`, { headers: { Origin: "http://local.test" } });
+    const liveEvents = readSseUntil(liveResponse, (text) => text.includes("event: job_finished"));
+
+    const createResponse = await postJson(url, "/api/jobs", {
+      cwd: root,
+      command: "npm",
+      args: ["run", "test"]
+    });
+    const createBody = await createResponse.json();
+    const job = await pollJob(url, createBody.jobId);
+    const liveText = await liveEvents;
+    const events = readEvents(root);
+    const serializedEvents = JSON.stringify(events);
+
+    expect(job.stdout).toContain(privatePath);
+    expect(job.stdout).toContain(`cwd:${diagnosticPath}`);
+    expect(job.stdout).toContain(`file://${diagnosticPath}`);
+    expect(job.stderr).toContain(windowsPath);
+    expect(serializedEvents).not.toContain(root);
+    expect(serializedEvents).not.toContain(privatePath);
+    expect(serializedEvents).not.toContain(diagnosticPath);
+    expect(serializedEvents).not.toContain(windowsPath);
+    expect(liveText).not.toContain(root);
+    expect(liveText).not.toContain(privatePath);
+    expect(liveText).not.toContain(diagnosticPath);
+    expect(liveText).not.toContain(windowsPath);
+
+    const jobOutput = events.filter((event) => event.type === "job_output");
+    expect(jobOutput.map((event) => event.payload.text).join("\n")).toContain("[redacted path]");
+    for (const event of events.filter((item) => item.type.startsWith("job_") && item.type !== "job_output")) {
+      expect(event.payload).not.toHaveProperty("cwd");
+      expect(event.payload).not.toHaveProperty("stdout");
+      expect(event.payload).not.toHaveProperty("stderr");
+    }
+  });
+
+  it("redacts opened paths from persisted action events", async () => {
+    const spawn = createSpawnStub();
+    const { url, root } = await startTestDaemon({ spawn });
+    const target = join(root, "nested", "private-file.txt");
+
+    const response = await postJson(url, "/api/actions/open-path", { path: target });
+    const body = await response.json();
+    const events = readEvents(root);
+    const serializedEvents = JSON.stringify(events);
+
+    expect(response.status).toBe(200);
+    expect(body.eventId).toMatch(/^daemon:/);
+    expect(serializedEvents).not.toContain(root);
+    expect(serializedEvents).not.toContain(target);
+    expect(events[0]).toMatchObject({
+      type: "file_opened",
+      payload: { path: "[redacted path]" }
+    });
+  });
+
   it("rejects unsafe job requests before spawning a process", async () => {
     const spawn = createSpawnStub();
     const { url, root } = await startTestDaemon({ spawn });
@@ -406,6 +474,24 @@ describe("cognopticon daemon endpoints", () => {
         createdAt: "2026-05-22T12:00:01.500Z"
       }),
       JSON.stringify({
+        id: "daemon:raw-output",
+        type: "job_output",
+        payload: { jobId: "job:1", stream: "stdout", text: "opened /home/user/private/project/secret.txt", truncated: false },
+        createdAt: "2026-05-22T12:00:01.600Z"
+      }),
+      JSON.stringify({
+        id: "daemon:raw-job",
+        type: "job_finished",
+        payload: { id: "job:1", cwd: "/home/user/private/project", command: "node", args: ["/home/user/private/project/proof.mjs"], status: "completed", ok: true, stdout: "/home/user/private/project/secret.txt", stderr: "" },
+        createdAt: "2026-05-22T12:00:01.700Z"
+      }),
+      JSON.stringify({
+        id: "daemon:raw-open",
+        type: "file_opened",
+        payload: { path: "/home/user/private/project/secret.txt" },
+        createdAt: "2026-05-22T12:00:01.800Z"
+      }),
+      JSON.stringify({
         id: "daemon:session",
         type: "orchestrator_session_started",
         payload: { sessionId: "orchestrator:1", message: "armed" },
@@ -415,13 +501,21 @@ describe("cognopticon daemon endpoints", () => {
 
     const response = await fetch(`${url}/api/events`, { headers: { Origin: "http://local.test" } });
     const snapshot = await readSseSnapshot(response);
+    const snapshotText = snapshot.join("\n");
 
-    expect(snapshot).toHaveLength(3);
-    expect(snapshot.join("\n")).not.toContain("Origin is not allowed");
-    expect(snapshot.join("\n")).not.toContain("/home/user/private/project");
-    expect(snapshot.join("\n")).toContain("Path is outside configured Cognopticon roots.");
-    expect(snapshot.join("\n")).toContain("node eval/print commands are not supported");
-    expect(snapshot.join("\n")).toContain("orchestrator_session_started");
+    expect(snapshot).toHaveLength(6);
+    expect(snapshotText).not.toContain("Origin is not allowed");
+    expect(snapshotText).not.toContain("/home/user/private/project");
+    expect(snapshotText).not.toContain("secret.txt");
+    expect(snapshotText).not.toContain("\"cwd\"");
+    expect(snapshotText).not.toContain("\"stdout\":");
+    expect(snapshotText).not.toContain("\"stderr\":");
+    expect(snapshotText).toContain("Path is outside configured Cognopticon roots.");
+    expect(snapshotText).toContain("node eval/print commands are not supported");
+    expect(snapshotText).toContain("job_output");
+    expect(snapshotText).toContain("job_finished");
+    expect(snapshotText).toContain("file_opened");
+    expect(snapshotText).toContain("orchestrator_session_started");
   });
 
   it("serves active profile state without falling back to legacy global workspace data", async () => {
@@ -550,8 +644,11 @@ function createSpawnStub({ stdout = "", stderr = "", code = 0 } = {}) {
     child.unref = vi.fn();
     calls.push({ command, args, options });
     setImmediate(() => {
-      if (stdout) child.stdout.write(stdout);
-      if (stderr) child.stderr.write(stderr);
+      const context = { command, args, options };
+      const stdoutText = typeof stdout === "function" ? stdout(context) : stdout;
+      const stderrText = typeof stderr === "function" ? stderr(context) : stderr;
+      if (stdoutText) child.stdout.write(stdoutText);
+      if (stderrText) child.stderr.write(stderrText);
       child.stdout.end();
       child.stderr.end();
       child.emit("close", code, null);
@@ -578,6 +675,47 @@ function postJson(baseUrl, path, body, options = {}) {
 function readEvents(root) {
   const eventText = readFileSync(join(root, ".cognopticon", "state", "events.jsonl"), "utf8").trim();
   return eventText ? eventText.split("\n").map((line) => JSON.parse(line)) : [];
+}
+
+async function pollJob(baseUrl, jobId) {
+  const deadline = Date.now() + 2000;
+  let lastBody;
+  while (Date.now() < deadline) {
+    const response = await fetch(`${baseUrl}/api/jobs/${encodeURIComponent(jobId)}`, {
+      headers: { Origin: "http://local.test" }
+    });
+    lastBody = await response.json();
+    if (lastBody.job && ["completed", "failed", "cancelled", "timed_out"].includes(lastBody.job.status)) return lastBody.job;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+  }
+  throw new Error(`Timed out waiting for job ${jobId}: ${JSON.stringify(lastBody)}`);
+}
+
+async function readSseUntil(response, predicate, timeoutMs = 2000) {
+  expect(response.status).toBe(200);
+  expect(response.body).not.toBeNull();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  const deadline = Date.now() + timeoutMs;
+  try {
+    while (Date.now() < deadline) {
+      const { value, done } = await readSseChunk(reader, Math.max(1, deadline - Date.now()));
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (predicate(text)) return text;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  throw new Error(`Timed out waiting for SSE event. Received:\n${text}`);
+}
+
+function readSseChunk(reader, timeoutMs) {
+  return Promise.race([
+    reader.read(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("SSE read timed out")), timeoutMs))
+  ]);
 }
 
 async function readSseSnapshot(response) {
