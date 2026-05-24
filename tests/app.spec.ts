@@ -89,66 +89,49 @@ test("runtime rail explains daemon failures with action provenance", async ({ pa
           headers: { "Content-Type": "application/json" }
         }));
       }
+      if (url.startsWith("http://127.0.0.1:8787/api/events")) {
+        const lines = [
+          JSON.stringify({
+            id: "daemon:boundary",
+            type: "action_failed",
+            payload: { error: "Origin is not allowed: http://127.0.0.1:5176" },
+            createdAt: "2026-05-23T12:00:00.000Z"
+          }),
+          JSON.stringify({
+            id: "daemon:policy",
+            type: "action_failed",
+            payload: {
+              error: "Destructive commands are not supported",
+              category: "policy_block",
+              action: "daemon_job",
+              endpoint: "/api/jobs",
+              method: "POST",
+              requestId: "request:42"
+            },
+            createdAt: "2026-05-23T12:00:01.000Z"
+          }),
+          JSON.stringify({
+            id: "daemon:path",
+            type: "action_failed",
+            payload: {
+              error: "Path is outside configured Cognopticon roots: /home/user/private/project",
+              category: "policy_block",
+              action: "daemon_job",
+              endpoint: "/api/jobs",
+              method: "POST",
+              requestId: "request:path"
+            },
+            createdAt: "2026-05-23T12:00:02.000Z"
+          })
+        ];
+        return Promise.resolve(new Response(`event: snapshot\ndata: ${JSON.stringify(lines)}\n\n`, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" }
+        }));
+      }
       return originalFetch(input, init);
     };
     window.fetch = mockedFetch;
-
-    class MockEventSource {
-      private listeners: Record<string, Array<(message: MessageEvent) => void>> = {};
-
-      constructor() {
-        window.setTimeout(() => {
-          this.emit("snapshot", [
-            JSON.stringify({
-              id: "daemon:boundary",
-              type: "action_failed",
-              payload: { error: "Origin is not allowed: http://127.0.0.1:5176" },
-              createdAt: "2026-05-23T12:00:00.000Z"
-            }),
-            JSON.stringify({
-              id: "daemon:policy",
-              type: "action_failed",
-              payload: {
-                error: "Destructive commands are not supported",
-                category: "policy_block",
-                action: "daemon_job",
-                endpoint: "/api/jobs",
-                method: "POST",
-                requestId: "request:42"
-              },
-              createdAt: "2026-05-23T12:00:01.000Z"
-            }),
-            JSON.stringify({
-              id: "daemon:path",
-              type: "action_failed",
-              payload: {
-                error: "Path is outside configured Cognopticon roots: /home/user/private/project",
-                category: "policy_block",
-                action: "daemon_job",
-                endpoint: "/api/jobs",
-                method: "POST",
-                requestId: "request:path"
-              },
-              createdAt: "2026-05-23T12:00:02.000Z"
-            })
-          ]);
-        }, 25);
-      }
-
-      addEventListener(type: string, listener: (message: MessageEvent) => void) {
-        this.listeners[type] = [...(this.listeners[type] ?? []), listener];
-      }
-
-      close() {
-        this.listeners = {};
-      }
-
-      private emit(type: string, lines: string[]) {
-        for (const listener of this.listeners[type] ?? []) listener({ data: JSON.stringify(lines) } as MessageEvent);
-      }
-    }
-
-    window.EventSource = MockEventSource as unknown as typeof EventSource;
   });
 
   await page.goto("/");

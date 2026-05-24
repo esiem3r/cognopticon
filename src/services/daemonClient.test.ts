@@ -1,10 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { isDaemonRequestBoundaryFailure, normalizeDaemonEvent, sanitizeDaemonErrorMessage } from "./daemonClient";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { __resetDaemonTokenForTests, __setDaemonEventReconnectDelayForTests, checkDaemonHealth, daemonToken, isDaemonRequestBoundaryFailure, normalizeDaemonEvent, sanitizeDaemonErrorMessage, subscribeDaemonEvents } from "./daemonClient";
+
+afterEach(() => {
+  __resetDaemonTokenForTests();
+  vi.unstubAllGlobals();
+});
 
 describe("daemon event normalization", () => {
   it("drops request-boundary failures from the operator runtime stream", () => {
     expect(isDaemonRequestBoundaryFailure({ error: "Origin is not allowed: http://127.0.0.1:5176" })).toBe(true);
     expect(isDaemonRequestBoundaryFailure({ error: "Cognopticon daemon token is required for this origin" })).toBe(true);
+    expect(isDaemonRequestBoundaryFailure({ error: "Cognopticon daemon token must be sent in X-Cognopticon-Token header" })).toBe(true);
 
     const event = normalizeDaemonEvent({
       id: "daemon:boundary",
@@ -66,4 +72,126 @@ describe("daemon event normalization", () => {
     expect(sanitizeDaemonErrorMessage("failed at /home/user/private/file.txt")).toBe("failed at [redacted path]");
     expect(sanitizeDaemonErrorMessage("failed at C:\\Users\\User\\secret.txt")).toBe("failed at [redacted path]");
   });
+
+  it("bootstraps daemon tokens into session storage and strips visible URLs", async () => {
+    const sessionStorage = memoryStorage();
+    const localStorage = memoryStorage({ "cognopticon:daemonToken": "legacy-secret" });
+    const history = { state: {}, replaceState: vi.fn() };
+    vi.stubGlobal("document", { title: "Cognopticon" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/?daemonToken=query-secret&view=graph#daemonToken=fragment-secret&mode=dev"),
+      sessionStorage,
+      localStorage,
+      history
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await checkDaemonHealth("http://127.0.0.1:8787");
+
+    expect(daemonToken()).toBe("fragment-secret");
+    expect(sessionStorage.getItem("cognopticon:daemonToken")).toBe("fragment-secret");
+    expect(localStorage.getItem("cognopticon:daemonToken")).toBeNull();
+    expect(history.replaceState).toHaveBeenCalled();
+    expect(String(history.replaceState.mock.calls[0][2])).not.toContain("daemonToken");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/api/health", expect.objectContaining({
+      headers: { "X-Cognopticon-Token": "fragment-secret" }
+    }));
+  });
+
+  it("does not accept app URL query-string daemon tokens", async () => {
+    const sessionStorage = memoryStorage();
+    const history = { state: {}, replaceState: vi.fn() };
+    vi.stubGlobal("document", { title: "Cognopticon" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/?daemonToken=query-secret&view=graph"),
+      sessionStorage,
+      localStorage: memoryStorage(),
+      history
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await checkDaemonHealth("http://127.0.0.1:8787");
+
+    expect(daemonToken()).toBeUndefined();
+    expect(sessionStorage.getItem("cognopticon:daemonToken")).toBeNull();
+    expect(history.replaceState).toHaveBeenCalled();
+    expect(String(history.replaceState.mock.calls[0][2])).not.toContain("daemonToken");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/api/health", expect.objectContaining({
+      headers: {}
+    }));
+  });
+
+  it("refreshes a cached daemon token from a new hash token in the same tab", () => {
+    const sessionStorage = memoryStorage({ "cognopticon:daemonToken": "old-secret" });
+    const history = { state: {}, replaceState: vi.fn() };
+    vi.stubGlobal("document", { title: "Cognopticon" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/#daemonToken=new-secret"),
+      sessionStorage,
+      localStorage: memoryStorage(),
+      history
+    });
+
+    expect(daemonToken()).toBe("new-secret");
+    expect(sessionStorage.getItem("cognopticon:daemonToken")).toBe("new-secret");
+    expect(history.replaceState).toHaveBeenCalled();
+    expect(String(history.replaceState.mock.calls[0][2])).not.toContain("daemonToken");
+  });
+
+  it("streams daemon events with fetch headers and reconnects after EOF", async () => {
+    __setDaemonEventReconnectDelayForTests(5);
+    const sessionStorage = memoryStorage({ "cognopticon:daemonToken": "stream-secret" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/"),
+      sessionStorage,
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    const fetchMock = vi.fn(async () => {
+      const attempt = fetchMock.mock.calls.length;
+      const eventLine = JSON.stringify({
+        id: `daemon:policy:${attempt}`,
+        type: "action_failed",
+        payload: { error: "Destructive commands are not supported", category: "policy_block", action: "daemon_job" },
+        createdAt: "2026-05-24T01:00:00.000Z"
+      });
+      return new Response(`event: snapshot\ndata: ${JSON.stringify([eventLine])}\n\n`, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const events: unknown[] = [];
+
+    const unsubscribe = subscribeDaemonEvents((event) => events.push(event), "http://127.0.0.1:8787");
+    await vi.waitFor(() => expect(events.length).toBeGreaterThanOrEqual(2));
+    unsubscribe();
+
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/api/events", expect.objectContaining({
+      headers: { "X-Cognopticon-Token": "stream-secret" }
+    }));
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const firstCall = fetchMock.mock.calls[0] as unknown[];
+    expect(String(firstCall[0])).not.toContain("daemonToken");
+  });
 });
+
+function memoryStorage(initial: Record<string, string> = {}) {
+  const store = new Map(Object.entries(initial));
+  return {
+    get length() {
+      return store.size;
+    },
+    clear: () => store.clear(),
+    getItem: (key: string) => store.get(key) ?? null,
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      store.set(key, value);
+    }
+  } as Storage;
+}

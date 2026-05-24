@@ -36,7 +36,15 @@ describe("cognopticon daemon endpoints", () => {
     expect(rejected.status).toBe(500);
     await expect(rejected.json()).resolves.toMatchObject({ error: "Cognopticon daemon token is required for this origin" });
 
-    const accepted = await fetch(`${url}/api/health?daemonToken=dev-secret`, { headers: { Origin: "http://127.0.0.1:5173" } });
+    const queryRejected = await fetch(`${url}/api/health?daemonToken=dev-secret`, { headers: { Origin: "http://127.0.0.1:5173" } });
+    expect(queryRejected.status).toBe(500);
+    await expect(queryRejected.json()).resolves.toMatchObject({ error: "Cognopticon daemon token must be sent in X-Cognopticon-Token header" });
+
+    const daemonOriginQueryRejected = await fetch(`${url}/api/health?daemonToken=dev-secret`);
+    expect(daemonOriginQueryRejected.status).toBe(500);
+    await expect(daemonOriginQueryRejected.json()).resolves.toMatchObject({ error: "Cognopticon daemon token must be sent in X-Cognopticon-Token header" });
+
+    const accepted = await fetch(`${url}/api/health`, { headers: { Origin: "http://127.0.0.1:5173", "X-Cognopticon-Token": "dev-secret" } });
     expect(accepted.status).toBe(200);
   });
 
@@ -58,7 +66,7 @@ describe("cognopticon daemon endpoints", () => {
     const rejected = await fetch(`${url}/api/health`, { headers: { Origin: "http://127.0.0.1:5176" } });
     expect(rejected.status).toBe(500);
 
-    const accepted = await fetch(`${url}/api/health?daemonToken=dev-secret`, { headers: { Origin: "http://127.0.0.1:5176" } });
+    const accepted = await fetch(`${url}/api/health`, { headers: { Origin: "http://127.0.0.1:5176", "X-Cognopticon-Token": "dev-secret" } });
     expect(accepted.status).toBe(200);
   });
 

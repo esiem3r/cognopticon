@@ -63,13 +63,17 @@ export interface OrchestratorTaskEventResult {
 }
 
 const DEFAULT_DAEMON_URL = "http://127.0.0.1:8787";
+const DAEMON_TOKEN_STORAGE_KEY = "cognopticon:daemonToken";
+
+let inMemoryDaemonToken: string | undefined;
+let daemonEventReconnectDelayMs = 1000;
 
 export async function checkDaemonHealth(baseUrl = DEFAULT_DAEMON_URL): Promise<DaemonStatus> {
   if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("daemon") === "off") {
     return { online: false, url: baseUrl, checkedAt: new Date().toISOString(), error: "disabled by URL" };
   }
   try {
-    const response = await fetch(withDaemonToken(`${baseUrl}/api/health`), { method: "GET", headers: daemonAuthHeaders() });
+    const response = await fetch(`${baseUrl}/api/health`, { method: "GET", headers: daemonAuthHeaders() });
     if (!response.ok) return { online: false, url: baseUrl, checkedAt: new Date().toISOString(), error: `HTTP ${response.status}` };
     return { online: true, url: baseUrl, checkedAt: new Date().toISOString() };
   } catch (error) {
@@ -111,7 +115,7 @@ export async function createDaemonJob(payload: { cwd: string; command: string; a
 
 export async function getDaemonJob(jobId: string, baseUrl = DEFAULT_DAEMON_URL): Promise<DaemonJobResult> {
   try {
-    const response = await fetch(withDaemonToken(`${baseUrl}/api/jobs/${encodeURIComponent(jobId)}`), { headers: daemonAuthHeaders() });
+    const response = await fetch(`${baseUrl}/api/jobs/${encodeURIComponent(jobId)}`, { headers: daemonAuthHeaders() });
     const body = await readDaemonJson(response);
     const message = typeof body.error === "string" ? body.error : `Daemon rejected job lookup: HTTP ${response.status}`;
     if (!response.ok) return { ok: false, message };
@@ -197,32 +201,9 @@ export async function recordOrchestratorTaskEvent(payload: {
 }
 
 export function subscribeDaemonEvents(onEvent: (event: CognopticonEvent) => void, baseUrl = DEFAULT_DAEMON_URL) {
-  const source = new EventSource(withDaemonToken(`${baseUrl}/api/events`));
-  source.addEventListener("snapshot", (message) => {
-    try {
-      const lines = JSON.parse(message.data) as string[];
-      for (const line of lines) {
-        const event = normalizeDaemonEvent(JSON.parse(line));
-        if (event) onEvent(event);
-      }
-    } catch {
-      // Ignore malformed historical daemon output.
-    }
-  });
-  for (const type of daemonEventTypes) {
-    source.addEventListener(type, (message) => {
-      try {
-        const event = normalizeDaemonEvent(JSON.parse((message as MessageEvent).data));
-        if (event) onEvent(event);
-      } catch {
-        // Ignore malformed live daemon output.
-      }
-    });
-  }
-  source.onerror = () => {
-    source.close();
-  };
-  return () => source.close();
+  const controller = new AbortController();
+  void streamDaemonEvents(onEvent, baseUrl, controller.signal);
+  return () => controller.abort();
 }
 
 const daemonEventTypes = [
@@ -261,7 +242,9 @@ export function isDaemonRequestBoundaryFailure(payload: unknown) {
 }
 
 function isRequestBoundaryMessage(message: string) {
-  return message.startsWith("Origin is not allowed:") || message === "Cognopticon daemon token is required for this origin";
+  return message.startsWith("Origin is not allowed:")
+    || message === "Cognopticon daemon token is required for this origin"
+    || message === "Cognopticon daemon token must be sent in X-Cognopticon-Token header";
 }
 
 function sanitizeActionFailurePayload(payload: unknown) {
@@ -311,21 +294,166 @@ function daemonAuthHeaders(): Record<string, string> {
   return token ? { "X-Cognopticon-Token": token } : {};
 }
 
-function withDaemonToken(url: string) {
-  const token = daemonToken();
-  if (!token) return url;
-  const nextUrl = new URL(url);
-  nextUrl.searchParams.set("daemonToken", token);
-  return nextUrl.toString();
+async function streamDaemonEvents(onEvent: (event: CognopticonEvent) => void, baseUrl: string, signal: AbortSignal) {
+  while (!signal.aborted) {
+    try {
+      await readDaemonEventStream(onEvent, baseUrl, signal);
+    } catch {
+      // The app treats event streaming as best-effort; health and command calls surface failures.
+    }
+    if (!signal.aborted) await delayDaemonEventReconnect(signal);
+  }
 }
 
-function daemonToken() {
+async function readDaemonEventStream(onEvent: (event: CognopticonEvent) => void, baseUrl: string, signal: AbortSignal) {
+  const response = await fetch(`${baseUrl}/api/events`, {
+    headers: daemonAuthHeaders(),
+    signal,
+    cache: "no-store"
+  });
+  if (!response.ok || !response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventType = "message";
+  let dataLines: string[] = [];
+
+  const dispatch = () => {
+    const data = dataLines.join("\n");
+    const currentEventType = eventType;
+    eventType = "message";
+    dataLines = [];
+    if (!data) return;
+    dispatchDaemonStreamEvent(currentEventType, data, onEvent);
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let lineEnd = buffer.indexOf("\n");
+    while (lineEnd >= 0) {
+      const rawLine = buffer.slice(0, lineEnd);
+      buffer = buffer.slice(lineEnd + 1);
+      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+      if (line === "") dispatch();
+      else if (line.startsWith("event:")) eventType = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+      lineEnd = buffer.indexOf("\n");
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    for (const line of buffer.split(/\r?\n/)) {
+      if (line === "") dispatch();
+      else if (line.startsWith("event:")) eventType = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+    }
+  }
+  dispatch();
+}
+
+function delayDaemonEventReconnect(signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const timeout = globalThis.setTimeout(resolve, daemonEventReconnectDelayMs);
+    signal.addEventListener("abort", () => {
+      globalThis.clearTimeout(timeout);
+      resolve();
+    }, { once: true });
+  });
+}
+
+function dispatchDaemonStreamEvent(eventType: string, data: string, onEvent: (event: CognopticonEvent) => void) {
+  try {
+    if (eventType === "snapshot") {
+      const lines = JSON.parse(data) as string[];
+      for (const line of lines) {
+        const event = normalizeDaemonEvent(JSON.parse(line));
+        if (event) onEvent(event);
+      }
+      return;
+    }
+    if (!daemonEventTypes.includes(eventType as (typeof daemonEventTypes)[number])) return;
+    const event = normalizeDaemonEvent(JSON.parse(data));
+    if (event) onEvent(event);
+  } catch {
+    // Ignore malformed historical or live daemon output.
+  }
+}
+
+export function daemonToken() {
   if (typeof window === "undefined") return undefined;
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get("daemonToken");
+  clearLegacyDaemonTokenStorage();
+  if (new URLSearchParams(window.location.search).has("daemonToken")) stripDaemonTokenFromVisibleUrl();
+  const token = daemonTokenFromLocation();
   if (token) {
-    window.localStorage.setItem("cognopticon:daemonToken", token);
+    inMemoryDaemonToken = token;
+    sessionSet(DAEMON_TOKEN_STORAGE_KEY, token);
+    stripDaemonTokenFromVisibleUrl();
     return token;
   }
-  return window.localStorage.getItem("cognopticon:daemonToken") ?? undefined;
+  if (inMemoryDaemonToken) return inMemoryDaemonToken;
+  inMemoryDaemonToken = sessionGet(DAEMON_TOKEN_STORAGE_KEY);
+  return inMemoryDaemonToken;
+}
+
+function daemonTokenFromLocation() {
+  const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+  return new URLSearchParams(hash).get("daemonToken") ?? undefined;
+}
+
+function stripDaemonTokenFromVisibleUrl() {
+  try {
+    const url = new URL(window.location.href);
+    let changed = false;
+    if (url.searchParams.has("daemonToken")) {
+      url.searchParams.delete("daemonToken");
+      changed = true;
+    }
+    const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+    const hashParams = new URLSearchParams(hash);
+    if (hashParams.has("daemonToken")) {
+      hashParams.delete("daemonToken");
+      const nextHash = hashParams.toString();
+      url.hash = nextHash ? `#${nextHash}` : "";
+      changed = true;
+    }
+    if (changed) window.history.replaceState(window.history.state, document.title, url.toString());
+  } catch {
+    // URL cleanup is a defense-in-depth convenience; auth still uses headers.
+  }
+}
+
+function sessionGet(key: string) {
+  try {
+    return window.sessionStorage.getItem(key) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sessionSet(key: string, value: string) {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Keep the token in memory for this page lifetime when storage is unavailable.
+  }
+}
+
+function clearLegacyDaemonTokenStorage() {
+  try {
+    window.localStorage.removeItem(DAEMON_TOKEN_STORAGE_KEY);
+  } catch {
+    // Best-effort cleanup for old builds that persisted daemon tokens.
+  }
+}
+
+export function __resetDaemonTokenForTests() {
+  inMemoryDaemonToken = undefined;
+  daemonEventReconnectDelayMs = 1000;
+}
+
+export function __setDaemonEventReconnectDelayForTests(value: number) {
+  daemonEventReconnectDelayMs = value;
 }

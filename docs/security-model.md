@@ -11,6 +11,8 @@ New local runs write private state to `.cognopticon/profiles/<profile>/`. `publi
 
 The local daemon is a convenience bridge, not an internet service and not a general shell. It binds to `127.0.0.1`, accepts configured local browser origins, checks configured roots, checks command allowlists, uses `shell: false`, limits request/output sizes, caps job runtime, logs action attempts, and refuses destructive commands.
 
+When a dev-server origin needs daemon access, the browser keeps the daemon token in tab-scoped `sessionStorage` and sends it in the `X-Cognopticon-Token` header. The daemon rejects `daemonToken` query parameters so tokens do not ride along in daemon request URLs, logs, history, or copied links.
+
 Browser-only mode cannot run local commands. It offers safe fallbacks: copy path, copy command, and generate mission.
 
 Allowed daemon work:
