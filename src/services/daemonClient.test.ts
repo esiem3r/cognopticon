@@ -84,7 +84,7 @@ describe("daemon event normalization", () => {
       localStorage,
       history
     });
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
     await checkDaemonHealth("http://127.0.0.1:8787");
@@ -109,7 +109,7 @@ describe("daemon event normalization", () => {
       localStorage: memoryStorage(),
       history
     });
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
     await checkDaemonHealth("http://127.0.0.1:8787");
@@ -121,6 +121,54 @@ describe("daemon event normalization", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/api/health", expect.objectContaining({
       headers: {}
     }));
+  });
+
+  it("uses the daemon-served app origin before falling back to the default daemon port", async () => {
+    const sessionStorage = memoryStorage();
+    vi.stubGlobal("document", { title: "Cognopticon" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:45678/#daemonToken=origin-secret"),
+      sessionStorage,
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "http://127.0.0.1:45678/api/health") {
+        return new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("missing", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await checkDaemonHealth();
+
+    expect(status).toMatchObject({ online: true, url: "http://127.0.0.1:45678" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:45678/api/health", expect.objectContaining({
+      headers: { "X-Cognopticon-Token": "origin-secret" }
+    }));
+  });
+
+  it("does not treat a dev-server HTML fallback as daemon health", async () => {
+    vi.stubGlobal("document", { title: "Cognopticon" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/"),
+      sessionStorage: memoryStorage(),
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "http://127.0.0.1:5173/api/health") {
+        return new Response("<!doctype html><title>Cognopticon</title>", { status: 200, headers: { "Content-Type": "text/html" } });
+      }
+      return new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await checkDaemonHealth();
+
+    expect(status).toMatchObject({ online: true, url: "http://127.0.0.1:8787" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes a cached daemon token from a new hash token in the same tab", () => {

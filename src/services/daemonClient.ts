@@ -68,17 +68,38 @@ const DAEMON_TOKEN_STORAGE_KEY = "cognopticon:daemonToken";
 let inMemoryDaemonToken: string | undefined;
 let daemonEventReconnectDelayMs = 1000;
 
-export async function checkDaemonHealth(baseUrl = DEFAULT_DAEMON_URL): Promise<DaemonStatus> {
+export async function checkDaemonHealth(baseUrl?: string): Promise<DaemonStatus> {
   if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("daemon") === "off") {
-    return { online: false, url: baseUrl, checkedAt: new Date().toISOString(), error: "disabled by URL" };
+    return { online: false, url: baseUrl ?? DEFAULT_DAEMON_URL, checkedAt: new Date().toISOString(), error: "disabled by URL" };
   }
+  let lastStatus: DaemonStatus | undefined;
+  for (const candidateUrl of daemonCandidateUrls(baseUrl)) {
+    lastStatus = await probeDaemonHealth(candidateUrl);
+    if (lastStatus.online) return lastStatus;
+  }
+  return lastStatus ?? { online: false, url: baseUrl ?? DEFAULT_DAEMON_URL, checkedAt: new Date().toISOString(), error: "not checked" };
+}
+
+async function probeDaemonHealth(baseUrl: string): Promise<DaemonStatus> {
   try {
     const response = await fetch(`${baseUrl}/api/health`, { method: "GET", headers: daemonAuthHeaders() });
     if (!response.ok) return { online: false, url: baseUrl, checkedAt: new Date().toISOString(), error: `HTTP ${response.status}` };
+    const body = await readDaemonJson(response);
+    if (body.ok !== true || body.daemon !== "cognopticon") {
+      return { online: false, url: baseUrl, checkedAt: new Date().toISOString(), error: "not a Cognopticon daemon" };
+    }
     return { online: true, url: baseUrl, checkedAt: new Date().toISOString() };
   } catch (error) {
     return { online: false, url: baseUrl, checkedAt: new Date().toISOString(), error: error instanceof Error ? error.message : "Unknown daemon error" };
   }
+}
+
+function daemonCandidateUrls(baseUrl?: string) {
+  const candidates = [];
+  if (baseUrl) candidates.push(baseUrl);
+  else if (typeof window !== "undefined" && window.location?.origin?.startsWith("http")) candidates.push(window.location.origin);
+  candidates.push(DEFAULT_DAEMON_URL);
+  return [...new Set(candidates)];
 }
 
 export async function runDaemonCommand(payload: { cwd: string; command: string; args?: string[] }, baseUrl = DEFAULT_DAEMON_URL): Promise<DaemonActionResult> {
