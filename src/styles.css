@@ -702,16 +702,27 @@ select {
 }
 
 .proposal-card div,
-.action-wheel {
+.action-wheel-buttons {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.action-wheel {
+  display: grid;
+  gap: 6px;
 }
 
 .proposal-card button,
 .action-wheel button {
   min-height: 44px;
   font-size: 11px;
+}
+
+.action-status {
+  min-height: 14px;
+  color: rgba(185, 255, 224, 0.72);
+  font-size: 10px;
 }
 
 .detail-tray {
