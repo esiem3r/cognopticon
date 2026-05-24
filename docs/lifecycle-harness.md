@@ -84,6 +84,7 @@ Default gates:
 - `npm run validate:daemon`
 - `npm run validate:daemon-config`
 - `npm run audit:ux`
+- `npm run audit:a11y`
 - `npm run test:e2e`
 
 The matching personal Codex skill is `cognopticon-lifecycle`. It keeps the workflow reusable across sessions and machines while Cognopticon records the artifacts per profile.

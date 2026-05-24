@@ -16,10 +16,11 @@
     "preview": "vite preview --host 127.0.0.1",
     "lint": "eslint .",
     "audit:ux": "node scripts/ux-audit.mjs",
+    "audit:a11y": "playwright test --grep @a11y",
     "audit:deps": "npm audit --audit-level=moderate",
     "test": "vitest run src/lib/domain.test.ts src/lib/missionPacket.test.ts src/intelligence/missionCompiler.test.ts src/lib/canvas.test.ts src/lib/validateData.test.ts src/lib/workspacePipeline.test.ts src/model/model.test.ts src/field/fieldModel.test.ts src/agency/agencyKernel.test.ts src/agency/actionBus.test.ts src/agency/agentAdapters.test.ts src/agency/agentRuntime.test.ts src/services/daemonClient.test.ts src/components/missionDrawerState.test.ts src/components/cognition/CognitionRail.test.ts daemon/src/index.test.js",
     "test:daemon": "vitest run daemon/src/index.test.js",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --grep-invert @a11y",
     "validate:data": "node scripts/validate-data.mjs",
     "validate:release": "node scripts/validate-release-hygiene.mjs",
     "validate:community": "node scripts/validate-community-health.mjs",
@@ -52,6 +53,7 @@
     "vite": "^7.0.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.50.0",
     "@testing-library/react": "^16.1.0",

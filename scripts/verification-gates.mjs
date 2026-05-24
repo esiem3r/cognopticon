@@ -15,6 +15,7 @@ export const releaseGates = [
   { command: "npm", args: ["run", "validate:daemon"] },
   { command: "npm", args: ["run", "validate:daemon-config"] },
   { command: "npm", args: ["run", "audit:ux"] },
+  { command: "npm", args: ["run", "audit:a11y"] },
   { command: "npm", args: ["run", "test:e2e"] }
 ];
 

@@ -173,6 +173,7 @@ npm run validate:daemon-config
 npm run audit:deps
 npm run lint
 npm run audit:ux
+npm run audit:a11y
 npm test
 npm run build
 npm run build:pages
@@ -218,6 +219,7 @@ npm run validate:pages
 npm run validate:daemon
 npm run validate:daemon-config
 npm run audit:ux
+npm run audit:a11y
 npm run test:e2e
 ```
 
