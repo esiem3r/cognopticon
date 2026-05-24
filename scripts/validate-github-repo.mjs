@@ -54,6 +54,7 @@ if (!protection) {
     ...(protection.required_status_checks?.checks ?? []).map((check) => check.context)
   ].filter(Boolean));
   if (!checks.has(requiredStatusContext)) errors.push(`${branch} protection must require status check: ${requiredStatusContext}`);
+  requireEqual(protection.enforce_admins?.enabled, true, `${branch} protection must apply to administrators`);
   requireEqual(protection.required_status_checks?.strict, true, `${branch} protection must require branches to be up to date`);
   requireEqual(protection.required_conversation_resolution?.enabled, true, `${branch} protection must require conversation resolution`);
   requireEqual(protection.allow_force_pushes?.enabled, false, `${branch} protection must block force pushes`);

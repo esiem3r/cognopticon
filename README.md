@@ -197,7 +197,7 @@ npm run build
 npm run test:e2e
 ```
 
-Maintainers can also run `npm run validate:github -- --repo esiem3r/cognopticon` after publishing to verify hosted repository hardening: branch protection, required Release Gate status checks, dependency alerts, private vulnerability reporting, CodeQL default setup, repository topics, and disabled unmaintained GitHub surfaces.
+Maintainers can also run `npm run validate:github -- --repo esiem3r/cognopticon` after publishing to verify hosted repository hardening: administrator-enforced branch protection, required Release Gate status checks, dependency alerts, private vulnerability reporting, CodeQL default setup, repository topics, and disabled unmaintained GitHub surfaces.
 
 ## Security
 

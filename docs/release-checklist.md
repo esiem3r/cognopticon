@@ -52,7 +52,7 @@ For the canonical public repository, verify the hosted settings after the first 
 npm run validate:github -- --repo esiem3r/cognopticon
 ```
 
-The hosted repository should be public, have Issues enabled, have unmaintained Projects/Wiki disabled, delete merged branches, use topics that describe the local-first graph/operator domain, and protect `main` with the hosted `Validate, Test, Build, And Audit` status check. Dependabot vulnerability alerts, automated security fixes, private vulnerability reporting, and CodeQL default setup should be enabled.
+The hosted repository should be public, have Issues enabled, have unmaintained Projects/Wiki disabled, delete merged branches, use topics that describe the local-first graph/operator domain, and protect `main` for administrators with the hosted `Validate, Test, Build, And Audit` status check. Dependabot vulnerability alerts, automated security fixes, private vulnerability reporting, and CodeQL default setup should be enabled.
 
 ## Human Review
 
