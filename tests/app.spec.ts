@@ -457,6 +457,65 @@ test("graph controls recenter the existing canvas without recreating it", async 
   expect(Math.abs(after - before)).toBeLessThan(25000);
 });
 
+test("keyboard traverses the graph without pointer input", async ({ page }) => {
+  await page.goto("/");
+  const canvas = page.getByTestId("universe-canvas");
+  const status = page.getByRole("status", { name: "Graph keyboard status", includeHidden: true });
+
+  await expect(canvas).toHaveAttribute("tabindex", "0");
+  await canvas.focus();
+  await expect(canvas).toBeFocused();
+  await expect(status).toContainText("9 visible projects available");
+  const focusStyle = await canvas.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      outlineStyle: style.outlineStyle,
+      outlineWidth: Number.parseFloat(style.outlineWidth),
+      boxShadow: style.boxShadow
+    };
+  });
+  expect(focusStyle.outlineStyle).not.toBe("none");
+  expect(focusStyle.outlineWidth).toBeGreaterThanOrEqual(2);
+  expect(focusStyle.boxShadow).not.toBe("none");
+
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".node-cockpit").getByRole("heading", { name: "Launchable Tool" })).toBeVisible();
+  await expect(status).toContainText("Selected Launchable Tool. 1 of 9 visible projects.");
+
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".node-cockpit").getByRole("heading", { name: "Proof Forge" })).toBeVisible();
+  await expect(status).toContainText("Selected Proof Forge. 2 of 9 visible projects.");
+
+  await page.keyboard.press("End");
+  await expect(page.locator(".node-cockpit").getByRole("heading", { name: "Public Release Blocker" })).toBeVisible();
+  await expect(status).toContainText("Selected Public Release Blocker. 9 of 9 visible projects.");
+
+  await page.keyboard.press("Home");
+  await expect(page.locator(".node-cockpit").getByRole("heading", { name: "Launchable Tool" })).toBeVisible();
+  await expect(status).toContainText("Selected Launchable Tool. 1 of 9 visible projects.");
+
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator(".node-cockpit").getByRole("heading", { name: "Public Release Blocker" })).toBeVisible();
+  await expect(status).toContainText("Selected Public Release Blocker. 9 of 9 visible projects.");
+
+  await page.keyboard.press("ArrowUp");
+  await expect(page.locator(".node-cockpit").getByRole("heading", { name: "Archive Fossil" })).toBeVisible();
+  await expect(status).toContainText("Selected Archive Fossil. 8 of 9 visible projects.");
+
+  await page.getByLabel("Search projects").fill("operator");
+  await canvas.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".node-cockpit").getByRole("heading", { name: "Operator Studio v2" })).toBeVisible();
+  await expect(status).toContainText("Selected Operator Studio v2. 2 of 2 visible projects.");
+
+  await page.getByLabel("Search projects").fill("no matching project");
+  await canvas.focus();
+  await expect(status).toContainText("Selected Operator Studio v2. 0 visible projects available.");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".node-cockpit").getByRole("heading", { name: "Operator Studio v2" })).toBeVisible();
+  await expect(status).toContainText("Selected Operator Studio v2. 0 visible projects available.");
+});
+
 async function graphLabelOverlayAudit(page: Page) {
   return await page.evaluate(() => {
     const rectOf = (element: Element) => {

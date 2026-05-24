@@ -122,10 +122,14 @@ export function UniverseCanvas({
   const projectPositions = useMemo(() => {
     return layoutProjectSphere(projects, relationships);
   }, [projects, relationships]);
+  const keyboardProjectIds = useMemo(() => projects
+    .filter((project) => filteredIds.has(project.id) && !isCoreNode(project.id))
+    .map((project) => project.id), [filteredIds, projects]);
 
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
-  const latestRef = useRef({ projects, projectPositions, selectedId, hoveredId, onSelect, onHover, onScreenNodes, nodeById });
-  latestRef.current = { projects, projectPositions, selectedId, hoveredId, onSelect, onHover, onScreenNodes, nodeById };
+  const latestRef = useRef({ projects, projectPositions, selectedId, hoveredId, onSelect, onHover, onScreenNodes, nodeById, keyboardProjectIds });
+  latestRef.current = { projects, projectPositions, selectedId, hoveredId, onSelect, onHover, onScreenNodes, nodeById, keyboardProjectIds };
+  const keyboardStatus = keyboardStatusText(projects, keyboardProjectIds, selectedId);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -145,7 +149,10 @@ export function UniverseCanvas({
     renderer.setPixelRatio(canvasPixelRatio(latestRef.current.projects.length));
     renderer.domElement.className = "universe-canvas";
     renderer.domElement.dataset.testid = "universe-canvas";
+    renderer.domElement.tabIndex = 0;
     renderer.domElement.setAttribute("aria-label", "Spatial project universe");
+    renderer.domElement.setAttribute("aria-describedby", "graph-keyboard-help graph-keyboard-status");
+    renderer.domElement.setAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight ArrowUp ArrowDown Home End");
     mount.appendChild(renderer.domElement);
 
     const graphGroup = new Group();
@@ -197,6 +204,7 @@ export function UniverseCanvas({
     };
 
     const handlePointerDown = (event: PointerEvent) => {
+      renderer.domElement.focus({ preventScroll: true });
       pointerActive = true;
       movedDuringDrag = false;
       lastX = event.clientX;
@@ -247,12 +255,21 @@ export function UniverseCanvas({
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const nextProjectId = keyboardTargetForKey(event.key, latestRef.current.keyboardProjectIds, latestRef.current.selectedId);
+      if (!nextProjectId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      latestRef.current.onSelect(nextProjectId);
+    };
+
     renderer.domElement.addEventListener("pointerdown", handlePointerDown);
     renderer.domElement.addEventListener("pointermove", handlePointerMove);
     renderer.domElement.addEventListener("pointerup", handlePointerUp);
     renderer.domElement.addEventListener("pointercancel", handlePointerUp);
     renderer.domElement.addEventListener("pointerleave", handlePointerLeave);
     renderer.domElement.addEventListener("wheel", handleWheel, { passive: false });
+    renderer.domElement.addEventListener("keydown", handleKeyDown);
 
     const observer = new ResizeObserver(() => resize());
     observer.observe(mount);
@@ -343,6 +360,7 @@ export function UniverseCanvas({
       renderer.domElement.removeEventListener("pointercancel", handlePointerUp);
       renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       renderer.domElement.removeEventListener("wheel", handleWheel);
+      renderer.domElement.removeEventListener("keydown", handleKeyDown);
       refs.current = null;
       mount.removeChild(renderer.domElement);
       renderer.dispose();
@@ -421,6 +439,10 @@ export function UniverseCanvas({
 
   return (
     <div ref={mountRef} className="universe-frame three-universe">
+      <p id="graph-keyboard-help" className="sr-only">Use arrow keys to move between visible projects. Home and End jump to the first and last visible project.</p>
+      <div id="graph-keyboard-status" className="sr-only" role="status" aria-label="Graph keyboard status" aria-live="polite">
+        {keyboardStatus}
+      </div>
       <div className="latent-haze" aria-hidden />
       <div className="project-label-layer" data-suppressed={labelsSuppressed} aria-hidden>
         {!labelsSuppressed && labels.filter((label) => !isCoreNode(label.id)).map((label) => (
@@ -441,6 +463,30 @@ export function UniverseCanvas({
       </div>
     </div>
   );
+}
+
+function keyboardTargetForKey(key: string, projectIds: string[], selectedId: string) {
+  if (!projectIds.length) return undefined;
+  const currentIndex = projectIds.indexOf(selectedId);
+  if (key === "Home") return projectIds[0];
+  if (key === "End") return projectIds[projectIds.length - 1];
+  if (key === "ArrowRight" || key === "ArrowDown") {
+    const nextIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
+    return projectIds[nextIndex % projectIds.length];
+  }
+  if (key === "ArrowLeft" || key === "ArrowUp") {
+    const previousIndex = currentIndex >= 0 ? currentIndex - 1 : projectIds.length - 1;
+    return projectIds[(previousIndex + projectIds.length) % projectIds.length];
+  }
+  return undefined;
+}
+
+function keyboardStatusText(projects: ProjectDossier[], keyboardProjectIds: string[], selectedId: string) {
+  const selected = projects.find((project) => project.id === selectedId);
+  const selectedName = selected?.name ?? "No project";
+  const index = keyboardProjectIds.indexOf(selectedId);
+  if (index < 0) return `Selected ${selectedName}. ${keyboardProjectIds.length} visible projects available.`;
+  return `Selected ${selectedName}. ${index + 1} of ${keyboardProjectIds.length} visible projects.`;
 }
 
 function layoutProjectSphere(projects: ProjectDossier[], relationships: ProjectRelationship[]) {
