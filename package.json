@@ -27,6 +27,7 @@
     "validate:package": "node scripts/validate-package-artifact.mjs",
     "validate:payload": "node scripts/validate-release-payload.mjs",
     "validate:local": "node scripts/validate-local-pipeline.mjs",
+    "validate:lifecycle": "node scripts/validate-lifecycle-packet.mjs",
     "validate:daemon": "node scripts/validate-local-daemon.mjs",
     "validate:daemon-config": "node scripts/validate-local-daemon-config.mjs",
     "validate:pages": "node scripts/validate-pages-demo.mjs",

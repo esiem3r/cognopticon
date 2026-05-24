@@ -83,6 +83,8 @@ Act as Cognopticon's supervisory orchestrator: manage research, planning, worker
 
 Detailed standards live in `docs/codex-goal.md`, `docs/lifecycle-harness.md`, generated lifecycle packets, and the personal `cognopticon-lifecycle` skill.
 
+Lifecycle packets include a structured prior-art gate (`research-brief.md`) and a second-terminal handoff (`handoff.md`). The planner is not supposed to lock direction until source links, retrieval dates, license compatibility, maintenance signals, reuse decisions, and rejected options are recorded. `npm run validate:lifecycle` proves the packet contract; `npm run validate:lifecycle -- --packet "<runDir>" --complete-research` proves a filled research brief before plan lock.
+
 ## Device-Scoped Profiles
 
 Cognopticon uses local profiles so different machines do not pollute each other. A profile owns its roots, scan output, analyzed workspace, daemon events, enrichments, mission packets, and lifecycle loop artifacts:
@@ -164,6 +166,7 @@ npm run validate:github -- --repo esiem3r/cognopticon
 npm run validate:package
 npm run validate:payload
 npm run validate:local
+npm run validate:lifecycle
 npm run validate:daemon
 npm run validate:daemon-config
 npm run audit:deps
@@ -204,6 +207,7 @@ npm run validate:community
 npm run validate:package
 npm run validate:payload
 npm run validate:local
+npm run validate:lifecycle
 npm run audit:deps
 npm run lint
 npm test
