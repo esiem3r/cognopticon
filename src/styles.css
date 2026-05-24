@@ -794,6 +794,8 @@ select {
 }
 
 .filter-trigger {
+  position: relative;
+  z-index: 2;
   min-height: 44px;
 }
 
@@ -855,6 +857,7 @@ select {
 }
 
 .filter-popover {
+  z-index: 1;
   right: 0;
   bottom: 46px;
   width: min(380px, calc(100vw - 36px));

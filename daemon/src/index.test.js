@@ -90,7 +90,11 @@ describe("cognopticon daemon endpoints", () => {
   });
 
   it("serves tracked split demo fixtures when no profile workspace exists", async () => {
-    const { url } = await startTestDaemon();
+    const { url, root } = await startTestDaemon();
+    mkdirSync(join(root, ".cognopticon", "state"), { recursive: true });
+    mkdirSync(join(root, "public"), { recursive: true });
+    writeFileSync(join(root, ".cognopticon", "state", "workspace.json"), JSON.stringify({ title: "Legacy global state", roots: ["/private"], projects: [], relationships: [] }));
+    writeFileSync(join(root, "public", "workspace.json"), JSON.stringify({ title: "Public generated state", roots: ["/private-public"], projects: [], relationships: [] }));
 
     const response = await fetch(`${url}/api/workspace`, { headers: { Origin: "http://local.test" } });
     const body = await response.json();
@@ -102,6 +106,49 @@ describe("cognopticon daemon endpoints", () => {
       projects: [{ id: "demo-project", path: "/demo/workspace/demo-project" }],
       relationships: []
     });
+  });
+
+  it("refuses default daemon startup before local init", () => {
+    const root = mkdtempSync(join(tmpdir(), "cognopticon-uninitialized-daemon-"));
+
+    expect(() => createDaemon({
+      root,
+      config: {
+        host: "127.0.0.1",
+        port: 0,
+        allowedOrigins: ["http://local.test"],
+        daemon: { maxRequestBytes: 4096 },
+        agents: { maxThreads: 1, maxRuntimeMs: 5000 }
+      }
+    })).toThrow(/Cognopticon local profile is not initialized/);
+  });
+
+  it("honors a custom configPath during profile runtime initialization", () => {
+    const root = mkdtempSync(join(tmpdir(), "cognopticon-custom-config-"));
+    const projectRoot = join(root, "workspace");
+    const configPath = join(root, "alt", "cognopticon.json");
+    mkdirSync(join(root, "alt"), { recursive: true });
+    writeFileSync(configPath, JSON.stringify({
+      activeProfile: "laptop",
+      profiles: {
+        laptop: { id: "laptop", label: "Laptop", allowedRoots: [projectRoot] }
+      },
+      allowedOrigins: ["http://local.test"]
+    }));
+
+    const daemon = createDaemon({
+      root,
+      configPath,
+      config: {
+        host: "127.0.0.1",
+        port: 0,
+        daemon: { maxRequestBytes: 4096 },
+        agents: { maxThreads: 1, maxRuntimeMs: 5000 }
+      }
+    });
+
+    expect(daemon.config.profile).toMatchObject({ id: "laptop", label: "Laptop" });
+    expect(daemon.config.allowedRoots).toEqual([projectRoot]);
   });
 
   it("runs approved compatibility commands through the injected process runner", async () => {

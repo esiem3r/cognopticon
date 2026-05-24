@@ -30,11 +30,15 @@ export function loadDaemonConfig(root = defaultRoot, configPath = join(root, ".c
 
 export function createDaemon(options = {}) {
   const root = resolve(options.root ?? defaultRoot);
-  const fileConfig = options.configPath === false ? {} : existsSync(options.configPath ?? join(root, ".cognopticon", "config.json"))
-    ? JSON.parse(readFileSync(options.configPath ?? join(root, ".cognopticon", "config.json"), "utf8"))
+  const configPath = options.configPath === false ? undefined : resolve(root, options.configPath ?? ".cognopticon/config.json");
+  const fileConfig = configPath && existsSync(configPath)
+    ? JSON.parse(readFileSync(configPath, "utf8"))
     : {};
-  const runtimeConfig = options.runtimeConfig ?? loadRuntimeConfig(root);
-  const profileRuntime = Boolean(options.runtimeConfig || fileConfig.activeProfile || fileConfig.profiles || fileConfig.profile);
+  const runtimeConfig = options.runtimeConfig ?? loadRuntimeConfig(root, {
+    configPath: options.configPath,
+    requireInitialized: options.requireInitialized ?? options.configPath !== false
+  });
+  const profileRuntime = Boolean(options.runtimeConfig || runtimeConfig.initialized || fileConfig.activeProfile || fileConfig.profiles || fileConfig.profile);
   const profileConfig = profileRuntime ? {
     profile: publicProfile(runtimeConfig.profile),
     allowedRoots: runtimeConfig.profile.allowedRoots
@@ -100,11 +104,7 @@ export function createDaemon(options = {}) {
 
   async function sendWorkspace(response) {
     const profileState = runtimeConfig.profile?.paths?.workspace;
-    const localState = join(root, ".cognopticon", "state", "workspace.json");
-    const publicState = join(root, "public", "workspace.json");
-    const target = profileRuntime
-      ? profileState && existsSync(profileState) ? profileState : undefined
-      : existsSync(localState) ? localState : existsSync(publicState) ? publicState : undefined;
+    const target = profileRuntime && profileState && existsSync(profileState) ? profileState : undefined;
     send(response, 200, target ? readJsonFile(target) : loadDemoWorkspace(root));
   }
 

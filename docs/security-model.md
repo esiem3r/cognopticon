@@ -9,7 +9,9 @@ Ignored private state:
 
 New local runs write private state to `.cognopticon/profiles/<profile>/`. `public/workspace.json` is treated as a release hygiene failure because it would be copied into a public build.
 
-The local daemon is a convenience bridge, not an internet service and not a general shell. It binds to `127.0.0.1`, accepts configured local browser origins, checks configured roots, checks command allowlists, uses `shell: false`, limits request/output sizes, caps job runtime, logs action attempts, and refuses destructive commands.
+Profile selection fails closed. A requested named profile must be declared in `.cognopticon/config.json` with explicit `allowedRoots`; typos and rootless profile declarations abort rather than falling back to the repository root. Profile path overrides are constrained to `.cognopticon/profiles/<profile>/`.
+
+The local daemon is a convenience bridge, not an internet service and not a general shell. It requires initialized local runtime config for normal startup, binds to `127.0.0.1`, accepts configured local browser origins, checks configured roots, checks command allowlists, uses `shell: false`, limits request/output sizes, caps job runtime, logs action attempts, and refuses destructive commands.
 
 When a dev-server origin needs daemon access, the browser keeps the daemon token in tab-scoped `sessionStorage` and sends it in the `X-Cognopticon-Token` header. The daemon rejects `daemonToken` query parameters so tokens do not ride along in daemon request URLs, logs, history, or copied links.
 
