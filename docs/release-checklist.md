@@ -11,6 +11,7 @@ Use this checklist before publishing a branch, pull request, tag, package artifa
 - GitHub issue forms and the pull request template warn against private workspace data.
 - Security coordination routes users to `SECURITY.md` and prevents public vulnerability details.
 - Public demo fixtures live in `src/data/` and use `/demo/` paths only.
+- The GitHub Pages workflow runs the full release gate, then builds and validates the sanitized static `dist-pages/` artifact before deployment.
 
 ## Private Data Boundary
 
@@ -40,6 +41,8 @@ The checkpoint must report its release mode, release file count, zero unstaged/u
 - `npm run lint`
 - `npm test`
 - `npm run build`
+- `npm run build:pages`
+- `npm run validate:pages`
 - `npm run validate:daemon`
 - `npm run validate:daemon-config`
 - `npm run audit:ux`
@@ -55,7 +58,7 @@ For the canonical public repository, verify the hosted settings after the first 
 npm run validate:github -- --repo esiem3r/cognopticon
 ```
 
-The hosted repository should be public, have Issues enabled, have unmaintained Projects/Wiki disabled, delete merged branches, use topics that describe the local-first graph/operator domain, and protect `main` for administrators with the hosted `Validate, Test, Build, And Audit` status check. Dependabot vulnerability alerts, automated security fixes, private vulnerability reporting, and CodeQL default setup should be enabled.
+The hosted repository should be public, have Issues enabled, have unmaintained Projects/Wiki disabled, delete merged branches, use topics that describe the local-first graph/operator domain, protect `main` for administrators with the hosted `Validate, Test, Build, And Audit` and `Build Sanitized Pages Demo` status checks, and publish GitHub Pages through the Actions workflow source. Dependabot vulnerability alerts, automated security fixes, private vulnerability reporting, and CodeQL default setup should be enabled.
 
 ## Human Review
 

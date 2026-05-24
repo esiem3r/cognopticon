@@ -5,6 +5,7 @@ _cognopticon_safety/
 .env.*
 .vite/
 dist/
+dist-pages/
 missions/
 node_modules/
 playwright-report/

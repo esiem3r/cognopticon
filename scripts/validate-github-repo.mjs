@@ -17,6 +17,8 @@ const expectedTopics = [
   "vite"
 ];
 const requiredStatusContext = "Validate, Test, Build, And Audit";
+const requiredPagesStatusContext = "Build Sanitized Pages Demo";
+const expectedPagesUrl = `https://${repo?.split("/")[0]}.github.io/${repo?.split("/")[1]}/`;
 
 if (!repo) {
   console.error("Cognopticon GitHub repo validation failed: pass --repo owner/name or configure a GitHub origin remote.");
@@ -29,6 +31,7 @@ const protection = apiJson(`repos/${repo}/branches/${branch}/protection`, [], { 
 const privateVulnerabilityReporting = apiJson(`repos/${repo}/private-vulnerability-reporting`, [], { optional: true });
 const automatedSecurityFixes = apiJson(`repos/${repo}/automated-security-fixes`, [], { optional: true });
 const codeScanning = apiJson(`repos/${repo}/code-scanning/default-setup`, [], { optional: true });
+const pages = apiJson(`repos/${repo}/pages`, [], { optional: true });
 const vulnerabilityAlertsEnabled = apiStatus(`repos/${repo}/vulnerability-alerts`);
 
 requireEqual(repository.private, false, "repository must be public");
@@ -54,6 +57,7 @@ if (!protection) {
     ...(protection.required_status_checks?.checks ?? []).map((check) => check.context)
   ].filter(Boolean));
   if (!checks.has(requiredStatusContext)) errors.push(`${branch} protection must require status check: ${requiredStatusContext}`);
+  if (!checks.has(requiredPagesStatusContext)) errors.push(`${branch} protection must require status check: ${requiredPagesStatusContext}`);
   requireEqual(protection.enforce_admins?.enabled, true, `${branch} protection must apply to administrators`);
   requireEqual(protection.required_status_checks?.strict, true, `${branch} protection must require branches to be up to date`);
   requireEqual(protection.required_conversation_resolution?.enabled, true, `${branch} protection must require conversation resolution`);
@@ -65,6 +69,16 @@ if (!vulnerabilityAlertsEnabled) errors.push("Dependabot vulnerability alerts mu
 requireEqual(automatedSecurityFixes?.enabled, true, "Dependabot automated security fixes must be enabled");
 requireEqual(privateVulnerabilityReporting?.enabled, true, "private vulnerability reporting must be enabled");
 requireEqual(codeScanning?.state, "configured", "CodeQL default setup must be configured");
+if (!pages) {
+  errors.push("GitHub Pages site must be configured");
+} else {
+  requireEqual(pages.build_type, "workflow", "GitHub Pages must use the Actions workflow source");
+  requireEqual(pages.public, true, "GitHub Pages site must be public");
+  requireEqual(pages.https_enforced, true, "GitHub Pages must enforce HTTPS");
+  if (normalizeUrl(pages.html_url) !== normalizeUrl(expectedPagesUrl)) {
+    errors.push(`GitHub Pages URL must be ${expectedPagesUrl} (got ${pages.html_url ?? "missing"})`);
+  }
+}
 
 if (errors.length) {
   console.error(`Cognopticon GitHub repo validation failed with ${errors.length} issue(s):`);
@@ -72,7 +86,7 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log(`Cognopticon GitHub repo valid: ${repo} ${branch}, protected release gate, security reporting, dependency alerts, CodeQL, topics, and repo hygiene.`);
+console.log(`Cognopticon GitHub repo valid: ${repo} ${branch}, protected release gate, Pages workflow publishing, security reporting, dependency alerts, CodeQL, topics, and repo hygiene.`);
 
 function argValue(flag) {
   const index = args.indexOf(flag);
@@ -110,4 +124,8 @@ function apiStatus(path) {
 
 function requireEqual(actual, expected, message) {
   if (actual !== expected) errors.push(`${message} (expected ${String(expected)}, got ${String(actual)})`);
+}
+
+function normalizeUrl(url) {
+  return String(url ?? "").replace(/\/+$/, "");
 }

@@ -25,6 +25,10 @@ const projectTypeFilters = [
   { id: "writing", label: "Writing", matches: (project: ProjectDossier) => project.domain === "writing" || project.tags.includes("markdown") }
 ] as const;
 
+const initialDaemonStatus: DaemonStatus = __COGNOPTICON_PUBLIC_DEMO__
+  ? { online: false, url: "public-static-demo", checkedAt: new Date().toISOString(), error: "disabled in public static demo" }
+  : { online: false, url: "http://127.0.0.1:8787", checkedAt: new Date().toISOString(), error: "not checked" };
+
 export default function App() {
   const [workspace, setWorkspace] = useState<CognopticonWorkspace>(sampleWorkspace);
   const [selectedId, setSelectedId] = useState(sampleWorkspace.projects[0]?.id ?? "workspace-core");
@@ -41,7 +45,7 @@ export default function App() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [screenNodes, setScreenNodes] = useState<ProjectLabel[]>([]);
   const [graphCommand, setGraphCommand] = useState<GraphCommand | null>(null);
-  const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>({ online: false, url: "http://127.0.0.1:8787", checkedAt: new Date().toISOString(), error: "not checked" });
+  const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>(initialDaemonStatus);
   const [orchestratorActive, setOrchestratorActive] = useState(false);
   const [orchestratorMessage, setOrchestratorMessage] = useState("Agent work is only exposed through the orchestrator. Worker/sub-agent machinery stays behind this boundary.");
   const [orchestratorSessionId, setOrchestratorSessionId] = useState<string | undefined>();

@@ -106,6 +106,7 @@ function requestDetail(payload: RuntimePayload | undefined) {
 }
 
 function isRequestBoundaryFailure(error: string | undefined) {
+  if (__COGNOPTICON_PUBLIC_DEMO__) return false;
   return Boolean(error && (
     error.startsWith("Origin is not allowed:")
     || error === "Cognopticon daemon token is required for this origin"

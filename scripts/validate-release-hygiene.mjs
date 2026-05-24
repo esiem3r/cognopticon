@@ -9,6 +9,7 @@ const forbiddenTracked = [
   /^\.cognopticon\//,
   /^_cognopticon_safety\//,
   /^dist\//,
+  /^dist-pages\//,
   /^node_modules\//,
   /^playwright-report\//,
   /^test-results\//,
@@ -28,6 +29,7 @@ const privatePatterns = [
 ];
 const requiredPublicSurfaces = [
   ".github/workflows/check.yml",
+  ".github/workflows/pages.yml",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
   ".github/ISSUE_TEMPLATE/feature_request.yml",
   ".github/ISSUE_TEMPLATE/support_request.yml",
@@ -109,6 +111,27 @@ const workflowText = existsSync(".github/workflows/check.yml") ? readFileSync(".
 for (const required of ["permissions:", "contents: read", "actions/checkout@v6", "actions/setup-node@v6", "node-version: 22", "npm ci", "npx playwright install --with-deps chromium", "npm run check"]) {
   if (!workflowText.includes(required)) errors.push(`.github/workflows/check.yml must mention ${required}`);
 }
+const pagesWorkflowText = existsSync(".github/workflows/pages.yml") ? readFileSync(".github/workflows/pages.yml", "utf8") : "";
+for (const required of [
+  "Public Demo Pages",
+  "pull_request:",
+  "workflow_dispatch:",
+  "permissions:",
+  "contents: read",
+  "pages: write",
+  "id-token: write",
+  "github-pages",
+  "actions/checkout@v6",
+  "actions/setup-node@v6",
+  "npx playwright install --with-deps chromium",
+  "actions/configure-pages@v5",
+  "actions/upload-pages-artifact@v4",
+  "actions/deploy-pages@v4",
+  "npm run check",
+  "path: dist-pages"
+]) {
+  if (!pagesWorkflowText.includes(required)) errors.push(`.github/workflows/pages.yml must mention ${required}`);
+}
 
 for (const path of releaseScanFiles([...trackedFiles, ...untrackedFiles, ...requiredPublicSurfaces])) {
   if (!existsSync(path)) continue;
@@ -158,7 +181,7 @@ function releaseScanFiles(paths) {
 }
 
 function isPublicTextPath(path) {
-  if (!path || path.startsWith(".cognopticon/") || path.startsWith("node_modules/") || path.startsWith("dist/")) return false;
+  if (!path || path.startsWith(".cognopticon/") || path.startsWith("node_modules/") || path.startsWith("dist/") || path.startsWith("dist-pages/")) return false;
   if (path.startsWith("test-results/") || path.startsWith("playwright-report/") || path.startsWith("_cognopticon_safety/")) return false;
   if (textBasenames.has(path)) return true;
   return textExtensions.has(extname(path));

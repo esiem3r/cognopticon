@@ -28,6 +28,15 @@ Open `http://127.0.0.1:5173/`.
 
 The public demo uses sanitized data from `src/data/workspace-meta.json`, `src/data/projects.json`, `src/data/relationships.json`, and `src/data/workspace-roots.json`. It includes a self-node, launchable tool, research node, writing node, corpus node, duplicate variant cluster, stale active work, sleeping giant, archive fossil, and public-release blocker.
 
+For the public GitHub Pages demo, build the same sanitized app with the repository base path:
+
+```bash
+npm run build:pages
+npm run validate:pages
+```
+
+Pushes to `main` deploy the generated `dist-pages/` artifact through the `Public Demo Pages` workflow after the full `npm run check` release gate passes. The Pages build runs in static public-demo mode, so it ships sanitized fixtures without daemon or workspace API probing. The canonical public demo URL is `https://esiem3r.github.io/cognopticon/` after the workflow has deployed.
+
 ## Run On Your Own Files
 
 ```bash
@@ -162,6 +171,8 @@ npm run lint
 npm run audit:ux
 npm test
 npm run build
+npm run build:pages
+npm run validate:pages
 npm run test:e2e
 npm run check
 npm run scan
@@ -197,13 +208,15 @@ npm run audit:deps
 npm run lint
 npm test
 npm run build
+npm run build:pages
+npm run validate:pages
 npm run validate:daemon
 npm run validate:daemon-config
 npm run audit:ux
 npm run test:e2e
 ```
 
-Maintainers can also run `npm run validate:github -- --repo esiem3r/cognopticon` after publishing to verify hosted repository hardening: administrator-enforced branch protection, required Release Gate status checks, dependency alerts, private vulnerability reporting, CodeQL default setup, repository topics, and disabled unmaintained GitHub surfaces.
+Maintainers can also run `npm run validate:github -- --repo esiem3r/cognopticon` after publishing to verify hosted repository hardening: administrator-enforced branch protection, required Release Gate status checks, dependency alerts, private vulnerability reporting, CodeQL default setup, GitHub Pages workflow publishing, repository topics, and disabled unmaintained GitHub surfaces.
 
 ## Security
 
