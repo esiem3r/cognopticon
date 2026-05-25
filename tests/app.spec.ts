@@ -1,5 +1,22 @@
 import { expect, test, type Page } from "@playwright/test";
 
+type CanvasPoint = { x: number; y: number };
+
+async function unobstructedCanvasPoint(page: Page, candidates: Array<[number, number]>): Promise<CanvasPoint> {
+  const point = await page.getByTestId("universe-canvas").evaluate((canvas: HTMLCanvasElement, ratios) => {
+    const rect = canvas.getBoundingClientRect();
+    for (const [rx, ry] of ratios) {
+      const x = rect.left + rect.width * rx;
+      const y = rect.top + rect.height * ry;
+      if (document.elementFromPoint(x, y) === canvas) return { x, y };
+    }
+    return null;
+  }, candidates);
+
+  expect(point).not.toBeNull();
+  return point as CanvasPoint;
+}
+
 test("renders the project universe and opens a mission brief", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByLabel("Cognopticon controls").getByRole("heading", { name: "Cognopticon" })).toBeVisible();
@@ -62,6 +79,93 @@ test("daemon offline state exposes useful fallback actions", async ({ page }) =>
   await expect(page.getByLabel("Cognition rail")).toContainText("Daemon offline");
   await expect(page.getByLabel("Cognition rail")).toContainText("copy-command fallbacks");
   await expect(page.locator(".launch-port").first()).toContainText(/fallback|offline|daemon/i);
+});
+
+test("runtime health drawer shows sanitized daemon profile state", async ({ page }) => {
+  await page.addInitScript(() => {
+    const testWindow = window as typeof window & { __daemonMutationCalls?: string[] };
+    testWindow.__daemonMutationCalls = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (/\/api\/(?:actions|jobs|orchestrator\/session|orchestrator\/task-event)/.test(url)) testWindow.__daemonMutationCalls?.push(url);
+      if (url.endsWith("/api/health")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          daemon: "cognopticon",
+          runtimeMode: "local_daemon",
+          profile: {
+            id: "laptop",
+            label: "Laptop /home/user/private",
+            deviceId: "rig-01",
+            stateDir: "/home/user/.cognopticon/state"
+          },
+          allowedRoots: ["/home/user/private", "C:\\Users\\User\\secret"],
+          allowedRootCount: 2,
+          daemonToken: "secret-token",
+          jobs: { queued: 1, running: 2, completed: 3, failed: 0, cancelled: 0, timed_out: 0 },
+          orchestrator: { sessions: 1, taskEvents: 4, latestSessionId: "session:health" }
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/state")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          active: false,
+          taskEvents: [],
+          completedTaskIds: []
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/runs/state")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, runs: [], jobs: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/events")) {
+        return Promise.resolve(new Response("event: snapshot\ndata: []\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" }
+        }));
+      }
+      return originalFetch(input, init);
+    };
+  });
+
+  await page.goto("/");
+  const mutationCallsBefore = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+  await page.getByRole("button", { name: "Open runtime health" }).click();
+  const drawer = page.getByRole("dialog", { name: "Local runtime health" });
+
+  await expect(drawer).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close runtime health" })).toBeFocused();
+  await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+  await expect(drawer.getByLabel("Runtime health summary")).toContainText("Active jobs");
+  await expect(drawer).toContainText("Local daemon online");
+  await expect(drawer).toContainText("laptop");
+  await expect(drawer).toContainText("Laptop");
+  await expect(drawer).toContainText("rig-01");
+  await expect(drawer).toContainText("Allowed root count");
+  await expect(drawer).toContainText("2");
+  await expect(drawer).toContainText("queued");
+  await expect(drawer).toContainText("running");
+  await expect(drawer).toContainText("session:health");
+  await expect(drawer).not.toContainText("/home/user");
+  await expect(drawer).not.toContainText("C:\\Users");
+  await expect(drawer).not.toContainText("stateDir");
+  await expect(drawer).not.toContainText("allowedRoots");
+  await expect(drawer).not.toContainText("secret-token");
+  await expect(drawer).not.toContainText("[redacted path]");
+  const mutationCallsAfter = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+  expect(mutationCallsAfter).toBe(mutationCallsBefore);
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  await expect(page.locator("body")).not.toHaveCSS("overflow", "hidden");
 });
 
 test("launch port copies the offline command fallback without daemon dispatch", async ({ page }) => {
@@ -192,6 +296,163 @@ test("launch port run status replaces previous copy feedback", async ({ page }) 
   await expect(launchPort.getByRole("status")).not.toContainText("Command copied:");
 });
 
+test("launch port status does not render raw daemon job output", async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/api/health")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/events")) {
+        return Promise.resolve(new Response("event: snapshot\ndata: []\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/state")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, active: false, taskEvents: [], completedTaskIds: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/runs/state")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, runs: [], jobs: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (/\/api\/jobs$/.test(url)) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, jobId: "job:secret", job: {
+          id: "job:secret",
+          command: "npm",
+          args: ["test"],
+          status: "queued",
+          ok: false,
+          createdAt: "2026-05-24T12:00:00.000Z",
+          updatedAt: "2026-05-24T12:00:00.000Z",
+          timeoutMs: 5000
+        } }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (/\/api\/jobs\/job%3Asecret$/.test(url)) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, job: {
+          id: "job:secret",
+          cwd: "/home/user/private/launchable-tool",
+          command: "npm",
+          args: ["test"],
+          status: "completed",
+          ok: true,
+          exitCode: 0,
+          stdout: "ok /home/user/private/launchable-tool/secret.txt",
+          stderr: "warn C:\\Users\\User\\secret.txt",
+          createdAt: "2026-05-24T12:00:00.000Z",
+          updatedAt: "2026-05-24T12:00:03.000Z",
+          timeoutMs: 5000
+        } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      return originalFetch(input, init);
+    };
+  });
+
+  await page.goto("/");
+  await page.getByLabel("Search projects").fill("launchable");
+  const launchPort = page.getByLabel("Launchable Tool launch port");
+
+  await launchPort.getByRole("button", { name: "Run" }).click();
+  await expect(launchPort.getByRole("status")).toContainText("npm exited 0");
+  await expect(launchPort.getByRole("status")).not.toContainText("/home/user");
+  await expect(launchPort.getByRole("status")).not.toContainText("C:\\Users");
+  await expect(launchPort.getByRole("status")).not.toContainText("secret.txt");
+});
+
+test("launch port keeps long-running daemon jobs running past the short poll window", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-24T12:00:00.000Z") });
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/api/health")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/events")) {
+        return Promise.resolve(new Response("event: snapshot\ndata: []\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/state")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, active: false, taskEvents: [], completedTaskIds: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/runs/state")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, runs: [], jobs: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (/\/api\/jobs$/.test(url)) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, jobId: "job:slow", job: {
+          id: "job:slow",
+          command: "npm",
+          args: ["test"],
+          status: "queued",
+          ok: false,
+          createdAt: "2026-05-24T12:00:00.000Z",
+          updatedAt: "2026-05-24T12:00:00.000Z",
+          timeoutMs: 900000
+        } }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (/\/api\/jobs\/job%3Aslow$/.test(url)) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, job: {
+          id: "job:slow",
+          command: "npm",
+          args: ["test"],
+          status: "running",
+          ok: false,
+          createdAt: "2026-05-24T12:00:00.000Z",
+          startedAt: "2026-05-24T12:00:01.000Z",
+          updatedAt: new Date().toISOString(),
+          timeoutMs: 900000
+        } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      return originalFetch(input, init);
+    };
+  });
+
+  await page.goto("/");
+  await page.getByLabel("Search projects").fill("launchable");
+  const launchPort = page.getByLabel("Launchable Tool launch port");
+  const status = launchPort.getByRole("status");
+
+  await launchPort.getByRole("button", { name: "Run" }).click();
+  await expect(status).toContainText("Daemon job job:slow running");
+
+  await page.clock.fastForward(31_000);
+  await expect(status).toContainText("Daemon job job:slow running");
+  await expect(status).not.toContainText("did not reach");
+  await expect(status).not.toContainText("failed");
+});
+
 test("action wheel copies a path fallback without daemon dispatch", async ({ page }) => {
   await page.addInitScript(() => {
     const testWindow = window as typeof window & { __daemonMutationCalls?: string[] };
@@ -266,6 +527,153 @@ test("orchestrator access arms the visualizer without exposing workers", async (
   await expect(page.getByTestId("universe-canvas")).toBeVisible();
 });
 
+test("orchestrator session rejection keeps task checks local", async ({ page }) => {
+  await page.addInitScript(() => {
+    const testWindow = window as typeof window & { __daemonMutationCalls?: string[] };
+    testWindow.__daemonMutationCalls = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (/\/api\/orchestrator\/(?:session|task-event)/.test(url)) testWindow.__daemonMutationCalls?.push(url);
+      if (url.endsWith("/api/health")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/state")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          active: false,
+          taskEvents: [],
+          completedTaskIds: []
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/runs/state")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, runs: [], jobs: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/events")) {
+        return Promise.resolve(new Response("event: snapshot\ndata: []\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/session")) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "Cognopticon daemon token is required for this origin" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/task-event")) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "task event should not be posted without a session" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      return originalFetch(input, init);
+    };
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start Orchestrator" }).click();
+  const access = page.getByLabel("Orchestrator access");
+  await expect(access).toContainText("Task checks remain local");
+  await expect(access).toContainText("User access only");
+
+  const queue = page.getByRole("complementary", { name: "Next action queue" });
+  const firstCard = queue.locator(".task-card").first();
+  await firstCard.locator("summary").click();
+  const firstTask = firstCard.locator("label").first();
+  await firstTask.getByRole("checkbox").check();
+
+  await expect(firstTask.locator("em")).toHaveText("local");
+  await expect(access).toContainText("Start the orchestrator to write checks into the daemon event log.");
+  const taskEventCalls = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? [])
+    .filter((url) => url.endsWith("/api/orchestrator/task-event")).length);
+  expect(taskEventCalls).toBe(0);
+});
+
+test("stale daemon orchestrator sessions disarm before repeated task posts", async ({ page }) => {
+  await page.addInitScript(() => {
+    const testWindow = window as typeof window & { __daemonMutationCalls?: string[] };
+    testWindow.__daemonMutationCalls = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (/\/api\/orchestrator\/(?:session|task-event)/.test(url)) testWindow.__daemonMutationCalls?.push(url);
+      if (url.endsWith("/api/health")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/state")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          active: true,
+          latestSessionId: "orchestrator:stale",
+          session: {
+            sessionId: "orchestrator:stale",
+            mode: "orchestrator",
+            focusProjectId: "launchable-tool",
+            startedAt: "2026-05-24T12:00:00.000Z"
+          },
+          taskEvents: [],
+          completedTaskIds: []
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/runs/state")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, runs: [], jobs: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/events")) {
+        return Promise.resolve(new Response("event: snapshot\ndata: []\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/task-event")) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "Unknown orchestrator session: orchestrator:stale" }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      return originalFetch(input, init);
+    };
+  });
+
+  await page.goto("/");
+  const access = page.getByLabel("Orchestrator access");
+  await expect(access).toContainText("Visualizer armed");
+  await page.getByRole("button", { name: "Toggle next action queue" }).click();
+  const queue = page.getByRole("complementary", { name: "Next action queue" });
+  const firstCard = queue.locator(".task-card").first();
+  await firstCard.locator("summary").click();
+  const taskLabels = firstCard.locator("label");
+
+  await taskLabels.nth(0).getByRole("checkbox").check();
+  await expect(access).toContainText("session expired");
+  await expect(access).toContainText("User access only");
+  await expect(taskLabels.nth(0).locator("em")).toHaveText("local");
+
+  await taskLabels.nth(1).getByRole("checkbox").check();
+  await expect(taskLabels.nth(1).locator("em")).toHaveText("local");
+  const taskEventCalls = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? [])
+    .filter((url) => url.endsWith("/api/orchestrator/task-event")).length);
+  expect(taskEventCalls).toBe(1);
+});
+
 test("orchestrator queue restores daemon-backed task state after reload", async ({ page }) => {
   await page.addInitScript(() => {
     const originalFetch = window.fetch.bind(window);
@@ -330,6 +738,183 @@ test("orchestrator queue restores daemon-backed task state after reload", async 
   await expect(projectedTask.locator("em")).toHaveText("daemon");
 });
 
+test("Runs lane restores daemon-backed run state after reload", async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/api/health")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/state")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          active: false,
+          taskEvents: [],
+          completedTaskIds: []
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/runs/state")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          runs: [{
+            id: "verify:launchable-tool",
+            projectId: "launchable-tool",
+            title: "Launchable Tool verification",
+            status: "completed",
+            summary: "npm run test exited 0 in /home/user/private/project",
+            command: "npm run test -- /home/user/private/project",
+            jobId: "job:restored",
+            createdAt: "2026-05-24T12:00:00.000Z",
+            updatedAt: "2026-05-24T12:00:03.000Z"
+          }],
+          jobs: [{
+            id: "job:restored",
+            runId: "verify:launchable-tool",
+            projectId: "launchable-tool",
+            title: "Launchable Tool verification at C:\\Users\\User\\secret",
+            command: "npm",
+            args: ["run", "test", "/home/user/private/project"],
+            status: "completed",
+            ok: true,
+            exitCode: 0,
+            createdAt: "2026-05-24T12:00:00.000Z",
+            updatedAt: "2026-05-24T12:00:03.000Z",
+            timeoutMs: 5000
+          }]
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/events")) {
+        return Promise.resolve(new Response("event: snapshot\ndata: []\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" }
+        }));
+      }
+      return originalFetch(input, init);
+    };
+  });
+
+  await page.goto("/");
+  const feed = page.getByLabel("Runtime event feed");
+  await expect(feed).toContainText("Launchable Tool verification");
+  await expect(feed).toContainText("npm run test exited 0");
+  await expect(feed).toContainText("completed");
+  await expect(feed).not.toContainText("/home/user");
+});
+
+test("run history shows sanitized daemon event timeline", async ({ page }) => {
+  await page.addInitScript(() => {
+    const testWindow = window as typeof window & { __daemonMutationCalls?: string[] };
+    testWindow.__daemonMutationCalls = [];
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (/\/api\/(?:actions|jobs|orchestrator\/session|orchestrator\/task-event)/.test(url)) testWindow.__daemonMutationCalls?.push(url);
+      if (url.endsWith("/api/health")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, daemon: "cognopticon" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/orchestrator/state")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          active: false,
+          taskEvents: [],
+          completedTaskIds: []
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/runs/state")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          ok: true,
+          runs: [{
+            id: "verify:launchable-tool",
+            projectId: "launchable-tool",
+            title: "Launchable Tool verification",
+            status: "completed",
+            summary: "npm run test exited 0",
+            command: "npm run test",
+            jobId: "job:restored",
+            createdAt: "2026-05-24T12:00:00.000Z",
+            updatedAt: "2026-05-24T12:00:03.000Z"
+          }],
+          jobs: [{
+            id: "job:restored",
+            runId: "verify:launchable-tool",
+            projectId: "launchable-tool",
+            title: "Launchable Tool verification",
+            command: "npm",
+            args: ["run", "test"],
+            status: "completed",
+            ok: true,
+            exitCode: 0,
+            createdAt: "2026-05-24T12:00:00.000Z",
+            updatedAt: "2026-05-24T12:00:03.000Z",
+            timeoutMs: 5000,
+            events: [
+              { id: "daemon:queued", type: "job_queued", createdAt: "2026-05-24T12:00:00.000Z", summary: "Queued npm run test in /home/user/private/project" },
+              { id: "daemon:output", type: "job_output", createdAt: "2026-05-24T12:00:02.000Z", summary: "stdout output observed C:\\Users\\User\\secret.txt", stream: "stdout", truncated: false },
+              { id: "daemon:finished", type: "job_finished", createdAt: "2026-05-24T12:00:03.000Z", summary: "completed exit 0", status: "completed", exitCode: 0 }
+            ]
+          }]
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }));
+      }
+      if (url.endsWith("/api/events")) {
+        return Promise.resolve(new Response("event: snapshot\ndata: []\n\n", {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" }
+        }));
+      }
+      return originalFetch(input, init);
+    };
+  });
+
+  await page.goto("/");
+  const mutationCallsBefore = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+  await page.getByRole("button", { name: "Open run history" }).click();
+  const drawer = page.getByRole("dialog", { name: "Run history" });
+
+  await expect(drawer).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close run history" })).toBeFocused();
+  await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+  await expect(drawer.getByLabel("Run history summary")).toContainText("Completed");
+  await expect(drawer).toContainText("Timeline events");
+  await expect(drawer).toContainText("Launchable Tool verification");
+  await expect(drawer).toContainText("npm run test exited 0");
+  await expect(drawer).toContainText("verify:launchable-tool");
+  await expect(drawer).toContainText("launchable-tool");
+  await expect(drawer).toContainText("job:restored");
+  await expect(drawer).toContainText("npm run test");
+  await expect(drawer).toContainText("Daemon event timeline");
+  await expect(drawer).toContainText("Queued npm run test");
+  await expect(drawer).toContainText("stdout output observed");
+  await expect(drawer).toContainText("completed exit 0");
+  await expect(drawer).not.toContainText("/home/user");
+  await expect(drawer).not.toContainText("C:\\Users");
+  await expect(drawer).not.toContainText("secret.txt");
+  await expect(drawer).not.toContainText("private-output.txt");
+  const mutationCallsAfter = await page.evaluate(() => ((window as typeof window & { __daemonMutationCalls?: string[] }).__daemonMutationCalls ?? []).length);
+  expect(mutationCallsAfter).toBe(mutationCallsBefore);
+  await page.locator(".drawer-backdrop").dispatchEvent("mousedown");
+  await expect(drawer).toHaveCount(0);
+  await expect(page.locator("body")).not.toHaveCSS("overflow", "hidden");
+});
+
 test("mission approval stages work without daemon dispatch", async ({ page }) => {
   await page.goto("/?daemon=off");
   await page.getByRole("button", { name: "Generate Mission", exact: true }).first().click();
@@ -352,6 +937,22 @@ test("malformed mission packet blocks official drawer delivery controls", async 
   await expect(page.getByRole("button", { name: "Copy Brief" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Copy Worker Prompt" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Mark Reviewed" })).toBeDisabled();
+});
+
+test("mission drawer presents a structured review before raw packet source", async ({ page }) => {
+  await page.goto("/tests/fixtures/mission-drawer-harness.html");
+
+  const drawer = page.getByRole("dialog", { name: "Drawer Harness" });
+  const review = page.getByLabel("Generated mission brief");
+  await expect(drawer).toBeVisible();
+  await expect(review).toContainText("Mission Brief: Drawer Harness");
+  await expect(review).toContainText("Acceptance Criteria");
+  await expect(review).toContainText("Verification Commands");
+  await expect(review).toContainText("Authority Boundary");
+  await expect(review.getByText("Packet source")).toBeVisible();
+  await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+  await expect(page.getByRole("button", { name: "Copy Brief" })).toBeInViewport();
+  await expect(page.getByRole("button", { name: "Copy Worker Prompt" })).toBeInViewport();
 });
 
 test("mission drawer copies a bounded worker prompt without dispatching", async ({ page }) => {
@@ -628,9 +1229,9 @@ test("canvas supports direct drag and wheel navigation", async ({ page }) => {
 
   const snapshotSize = async () => canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL("image/png").length);
   const before = await snapshotSize();
-  await page.mouse.move(box.x + box.width * 0.48, box.y + box.height * 0.52);
+  await page.mouse.move(box.x + box.width * 0.28, box.y + box.height * 0.3);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.38, { steps: 12 });
+  await page.mouse.move(box.x + box.width * 0.48, box.y + box.height * 0.18, { steps: 12 });
   await page.mouse.up();
   await page.mouse.wheel(26, 22);
   await page.keyboard.down("Control");
@@ -957,9 +1558,12 @@ test("reduced motion freezes ambient graph drift while preserving graph navigati
   expect(box).not.toBeNull();
   if (!box) return;
 
-  await page.mouse.move(box.x + box.width * 0.48, box.y + box.height * 0.52);
+  const dragStart = await unobstructedCanvasPoint(page, [[0.28, 0.3], [0.2, 0.2], [0.5, 0.5]]);
+  const dragEnd = await unobstructedCanvasPoint(page, [[0.48, 0.18], [0.62, 0.38], [0.38, 0.18]]);
+
+  await page.mouse.move(dragStart.x, dragStart.y);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.38, { steps: 12 });
+  await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 12 });
   await page.mouse.up();
   await page.waitForTimeout(250);
   const afterDrag = await canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL("image/png"));

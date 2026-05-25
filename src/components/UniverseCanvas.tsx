@@ -234,6 +234,7 @@ export function UniverseCanvas({
 
     const handlePointerDown = (event: PointerEvent) => {
       renderer.domElement.focus({ preventScroll: true });
+      renderer.domElement.setPointerCapture?.(event.pointerId);
       pointerActive = true;
       movedDuringDrag = false;
       lastX = event.clientX;
@@ -261,6 +262,9 @@ export function UniverseCanvas({
     const handlePointerUp = (event: PointerEvent) => {
       const state = refs.current;
       if (!state) return;
+      if (renderer.domElement.hasPointerCapture?.(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId);
+      }
       pointerActive = false;
       const hitId = pickProjectFromState(state, event.clientX, event.clientY);
       if (hitId && !movedDuringDrag) latestRef.current.onSelect(hitId);

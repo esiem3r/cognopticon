@@ -1,6 +1,16 @@
 # Public Demo
 
+For a first checkout, start with `docs/getting-started.md` and choose public demo mode unless you deliberately want local workspace access.
+
 The public demo uses the sanitized split fixtures in `src/data/workspace-meta.json`, `src/data/projects.json`, `src/data/relationships.json`, and `src/data/workspace-roots.json`.
+
+Run the local public demo with:
+
+```bash
+npm run dev:demo
+```
+
+That local demo mode uses the same static public adapters as the Pages build, so it does not probe the local daemon or private workspace API.
 
 The hosted public demo is built for GitHub Pages with:
 

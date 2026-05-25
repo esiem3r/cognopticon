@@ -1,19 +1,12 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { releasePrivacyFindings } from "./release-privacy-rules.mjs";
 
 const distRoot = "dist-pages";
 const deployBase = "/cognopticon/";
 const errors = [];
 const textExtensions = new Set([".css", ".html", ".js", ".json", ".svg", ".txt", ".webmanifest", ".xml"]);
-const privatePatterns = [
-  /\/home\/(?!example\b|user\b)[^/"'\s]+/i,
-  /\/mnt\/c\/Users\/[^/"'\s]+/i,
-  /C:\\Users\\[^\\/"'\s]+/i,
-  /\/Users\/(?!example\b|user\b)[^/"'\s]+/i,
-  /sk-[A-Za-z0-9_-]{20,}/,
-  /ghp_[A-Za-z0-9_]{20,}/
-];
 const forbiddenStaticDemoSnippets = [
   "127.0.0.1:8787",
   "localhost:8787",
@@ -26,6 +19,7 @@ const forbiddenStaticDemoSnippets = [
   "X-Cognopticon-Token",
   "daemonToken"
 ];
+let textFilesScanned = 0;
 
 if (!existsSync(join(distRoot, "index.html"))) {
   console.error("Cognopticon Pages demo validation failed: dist-pages/index.html is missing; run npm run build:pages first.");
@@ -55,14 +49,15 @@ for (const file of walk(distRoot)) {
   if (path === "workspace.json" || path.endsWith("/workspace.json")) errors.push(`Pages artifact must not include generated workspace JSON: ${path}`);
   if (path.startsWith(".cognopticon/")) errors.push(`Pages artifact must not include private state: ${path}`);
   if (!isTextPath(path)) continue;
+  textFilesScanned += 1;
   const text = readFileSync(file, "utf8");
   if (text.includes("public/workspace.json")) errors.push(`${path} references public/workspace.json`);
   if (text.includes(".cognopticon/profiles")) errors.push(`${path} references private profile state`);
   for (const snippet of forbiddenStaticDemoSnippets) {
     if (text.includes(snippet)) errors.push(`${path} references local-runtime API surface forbidden in the public static demo: ${snippet}`);
   }
-  for (const pattern of privatePatterns) {
-    if (pattern.test(text)) errors.push(`${path} contains private or secret-looking Pages artifact pattern: ${pattern}`);
+  for (const finding of releasePrivacyFindings(text)) {
+    errors.push(`${path} contains private or secret-looking Pages artifact pattern: ${finding.label}`);
   }
 }
 
@@ -72,7 +67,7 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log(`Cognopticon Pages demo valid: ${assetRefs.length} project-base asset reference(s), sanitized dist-pages artifact.`);
+console.log(`Cognopticon Pages demo valid: ${assetRefs.length} project-base asset reference(s), ${textFilesScanned} text artifact(s) scanned.`);
 
 function walk(directory) {
   const files = [];

@@ -1,3 +1,4 @@
+import { Activity, History, PanelRightOpen } from "lucide-react";
 import type { AgencyTickResult, DaemonStatus } from "../../agency/types";
 import type { CognopticonEvent } from "../../intelligence/types";
 import type { InterventionProposal } from "../../intelligence/types";
@@ -17,16 +18,26 @@ interface CognitionRailProps {
   onFocus: (nodeId: string) => void;
   onMission: (proposal: InterventionProposal) => void;
   onStartOrchestrator: () => void;
+  onOpenRunHistory: () => void;
+  onOpenRuntimeHealth: () => void;
+  onInspectRun: (runId: string) => void;
 }
 
-export function CognitionRail({ tick, daemonStatus, orchestratorActive, orchestratorMessage, runtimeEvents, runs, onFocus, onMission, onStartOrchestrator }: CognitionRailProps) {
+export function CognitionRail({ tick, daemonStatus, orchestratorActive, orchestratorMessage, runtimeEvents, runs, onFocus, onMission, onStartOrchestrator, onOpenRunHistory, onOpenRuntimeHealth, onInspectRun }: CognitionRailProps) {
   const proposals = dedupeVisibleProposals(tick.proposals).slice(0, 5);
   const visibleRuntimeEvents = runtimeEvents.filter(isVisibleRuntimeEvent).slice(0, 4);
   return (
     <aside className="cognition-rail" aria-label="Cognition rail">
       <header>
-        <span>Agency Kernel</span>
-        <strong>{daemonStatus.online ? "Daemon online" : "Daemon offline"}</strong>
+        <div className="rail-header-row">
+          <div>
+            <span>Agency Kernel</span>
+            <strong>{daemonStatus.online ? "Daemon online" : "Daemon offline"}</strong>
+          </div>
+          <button type="button" className="icon-button compact" onClick={onOpenRuntimeHealth} aria-label="Open runtime health">
+            <Activity size={15} aria-hidden />
+          </button>
+        </div>
         {!daemonStatus.online && (
           <p>Registered local actions are paused. Mission packets, focus changes, and copy-command fallbacks remain available.</p>
         )}
@@ -44,13 +55,21 @@ export function CognitionRail({ tick, daemonStatus, orchestratorActive, orchestr
         {proposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} onFocus={onFocus} onMission={onMission} />)}
       </section>
       <section className="runtime-feed" aria-label="Runtime event feed">
-        <h3>Runs</h3>
+        <div className="runtime-heading">
+          <h3>Runs</h3>
+          <button type="button" className="icon-button compact" onClick={onOpenRunHistory} aria-label="Open run history">
+            <History size={15} aria-hidden />
+          </button>
+        </div>
         {runs.length === 0 && <p>No approved mission or daemon run has been dispatched in this view.</p>}
         {runs.slice(0, 5).map((run) => (
           <article key={run.id} className="runtime-event" data-state={run.status}>
             <span>{run.status}</span>
             <strong>{run.title}</strong>
             <p>{run.summary}</p>
+            <button type="button" className="icon-button compact" onClick={() => onInspectRun(run.id)} aria-label={`Inspect ${run.title}`}>
+              <PanelRightOpen size={15} aria-hidden />
+            </button>
           </article>
         ))}
         <h3>Runtime</h3>

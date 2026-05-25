@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertConstrainedCommand, assertSafeDaemonCommand, buildDefaultConfig, createDaemon, isDestructiveCommand } from "./index.js";
+import { assertConstrainedCommand, assertSafeDaemonCommand, buildDefaultConfig, createDaemon, isDestructiveCommand, openPathSpawnSpec } from "./index.js";
 
 const daemons = [];
 
@@ -83,10 +83,42 @@ describe("cognopticon daemon endpoints", () => {
       ok: true,
       daemon: "cognopticon",
       host: "127.0.0.1",
+      runtimeMode: "local_daemon",
+      allowedRootCount: 1,
       jobs: { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0, timed_out: 0 },
       orchestrator: { sessions: 0, taskEvents: 0 }
     });
-    expect(body.allowedRoots).toEqual([root]);
+    expect(body).not.toHaveProperty("allowedRoots");
+    expect(JSON.stringify(body)).not.toContain(root);
+  });
+
+  it("reports sanitized profile identity in daemon health without roots or state paths", async () => {
+    const { url, root } = await startTestDaemon({
+      config: {
+        profile: {
+          id: "laptop",
+          label: "Laptop /home/user/private",
+          deviceId: "local-device",
+          stateDir: "/home/user/.cognopticon/state"
+        }
+      }
+    });
+
+    const response = await fetch(`${url}/api/health`);
+    const body = await response.json();
+    const serialized = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(body.profile).toMatchObject({
+      id: "laptop",
+      label: "Laptop [redacted path]",
+      deviceId: "local-device"
+    });
+    expect(body.profile).not.toHaveProperty("stateDir");
+    expect(body).not.toHaveProperty("allowedRoots");
+    expect(body.allowedRootCount).toBe(1);
+    expect(serialized).not.toContain(root);
+    expect(serialized).not.toContain("/home/user");
   });
 
   it("serves tracked split demo fixtures when no profile workspace exists", async () => {
@@ -152,7 +184,10 @@ describe("cognopticon daemon endpoints", () => {
   });
 
   it("runs approved compatibility commands through the injected process runner", async () => {
-    const spawn = createSpawnStub({ stdout: "green\n" });
+    const spawn = createSpawnStub({
+      stdout: ({ options }) => `green ${join(options.cwd, "private-stdout.txt")}\n`,
+      stderr: ({ options }) => `warn ${join(options.cwd, "private-stderr.txt")}\n`
+    });
     const { url, root } = await startTestDaemon({ spawn });
 
     const response = await postJson(url, "/api/actions/run-command", {
@@ -164,9 +199,14 @@ describe("cognopticon daemon endpoints", () => {
     const events = readEvents(root);
 
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({ ok: true, actionId: "run-command", stdout: "green\n", stderr: "" });
+    expect(body).toMatchObject({ ok: true, actionId: "run-command" });
+    expect(body.stdout).toContain("green [redacted path]");
+    expect(body.stderr).toContain("warn [redacted path]");
+    expect(JSON.stringify(body)).not.toContain(root);
+    expect(JSON.stringify(body)).not.toContain("private-stdout.txt");
+    expect(JSON.stringify(body)).not.toContain("private-stderr.txt");
     expect(spawn.calls).toEqual([{ command: "npm", args: ["run", "test"], options: { cwd: root, shell: false } }]);
-    expect(events.map((event) => event.type)).toEqual(["job_queued", "job_started", "job_output", "job_finished"]);
+    expect(events.map((event) => event.type)).toEqual(["job_queued", "job_started", "job_output", "job_output", "job_finished"]);
   });
 
   it("redacts successful job event payloads before persisting and streaming", async () => {
@@ -191,14 +231,18 @@ describe("cognopticon daemon endpoints", () => {
     });
     const createBody = await createResponse.json();
     const job = await pollJob(url, createBody.jobId);
+    const serializedJob = JSON.stringify(job);
     const liveText = await liveEvents;
     const events = readEvents(root);
     const serializedEvents = JSON.stringify(events);
 
-    expect(job.stdout).toContain(privatePath);
-    expect(job.stdout).toContain(`cwd:${diagnosticPath}`);
-    expect(job.stdout).toContain(`file://${diagnosticPath}`);
-    expect(job.stderr).toContain(windowsPath);
+    expect(job).not.toHaveProperty("cwd");
+    expect(job).not.toHaveProperty("stdout");
+    expect(job).not.toHaveProperty("stderr");
+    expect(serializedJob).not.toContain(root);
+    expect(serializedJob).not.toContain(privatePath);
+    expect(serializedJob).not.toContain(diagnosticPath);
+    expect(serializedJob).not.toContain(windowsPath);
     expect(serializedEvents).not.toContain(root);
     expect(serializedEvents).not.toContain(privatePath);
     expect(serializedEvents).not.toContain(diagnosticPath);
@@ -217,6 +261,35 @@ describe("cognopticon daemon endpoints", () => {
     }
   });
 
+  it("bounds persisted and streamed job output event payloads", async () => {
+    const longOutput = `${"a".repeat(96)}tail-marker\n`;
+    const spawn = createSpawnStub({ stdout: longOutput });
+    const { url, root } = await startTestDaemon({
+      spawn,
+      config: { daemon: { maxOutputBytes: 64, maxEventOutputBytes: 16 } }
+    });
+    const liveResponse = await fetch(`${url}/api/events`, { headers: { Origin: "http://local.test" } });
+    const liveEvents = readSseUntil(liveResponse, (text) => text.includes("event: job_finished"));
+
+    const createResponse = await postJson(url, "/api/jobs", {
+      cwd: root,
+      command: "npm",
+      args: ["run", "test"]
+    });
+    const createBody = await createResponse.json();
+    const job = await pollJob(url, createBody.jobId);
+    const liveText = await liveEvents;
+    const outputEvents = readEvents(root).filter((event) => event.type === "job_output");
+
+    expect(job.outputTruncated).toBe(true);
+    expect(outputEvents).toHaveLength(1);
+    expect(Buffer.byteLength(outputEvents[0].payload.text)).toBeLessThanOrEqual(16);
+    expect(outputEvents[0].payload.truncated).toBe(true);
+    expect(JSON.stringify(outputEvents)).not.toContain("tail-marker");
+    expect(liveText).not.toContain("tail-marker");
+    expect(liveText).toContain("\"truncated\":true");
+  });
+
   it("redacts opened paths from persisted action events", async () => {
     const spawn = createSpawnStub();
     const { url, root } = await startTestDaemon({ spawn });
@@ -224,17 +297,51 @@ describe("cognopticon daemon endpoints", () => {
 
     const response = await postJson(url, "/api/actions/open-path", { path: target });
     const body = await response.json();
+    const editorResponse = await postJson(url, "/api/actions/open-editor", { path: target });
+    const editorBody = await editorResponse.json();
     const events = readEvents(root);
     const serializedEvents = JSON.stringify(events);
 
     expect(response.status).toBe(200);
     expect(body.eventId).toMatch(/^daemon:/);
+    expect(body.message).toBe("Opened allowed local path.");
+    expect(JSON.stringify(body)).not.toContain(root);
+    expect(JSON.stringify(body)).not.toContain(target);
+    expect(editorResponse.status).toBe(200);
+    expect(editorBody.message).toBe("Opened configured editor for allowed local path.");
+    expect(JSON.stringify(editorBody)).not.toContain(root);
+    expect(JSON.stringify(editorBody)).not.toContain(target);
     expect(serializedEvents).not.toContain(root);
     expect(serializedEvents).not.toContain(target);
-    expect(events[0]).toMatchObject({
-      type: "file_opened",
-      payload: { path: "[redacted path]" }
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "file_opened",
+        payload: expect.objectContaining({ path: "[redacted path]" })
+      }),
+      expect.objectContaining({
+        type: "file_opened",
+        payload: expect.objectContaining({ path: "[redacted path]", editor: "code" })
+      })
+    ]);
+  });
+
+  it("opens local paths through platform launchers without shell-mediated command strings", async () => {
+    const pathWithShellMetacharacters = "C:\\Users\\User\\Project & secret\\file.txt";
+
+    expect(openPathSpawnSpec(pathWithShellMetacharacters, "win32")).toEqual({
+      command: "explorer.exe",
+      args: [pathWithShellMetacharacters]
     });
+    expect(openPathSpawnSpec("/Users/user/Project & secret/file.txt", "darwin")).toEqual({
+      command: "open",
+      args: ["/Users/user/Project & secret/file.txt"]
+    });
+    expect(openPathSpawnSpec("/home/user/Project & secret/file.txt", "linux")).toEqual({
+      command: "xdg-open",
+      args: ["/home/user/Project & secret/file.txt"]
+    });
+    expect(JSON.stringify(openPathSpawnSpec(pathWithShellMetacharacters, "win32"))).not.toContain("cmd.exe");
+    expect(JSON.stringify(openPathSpawnSpec(pathWithShellMetacharacters, "win32"))).not.toContain("/c");
   });
 
   it("rejects unsafe job requests before spawning a process", async () => {
@@ -390,6 +497,9 @@ describe("cognopticon daemon endpoints", () => {
 
     expect(response.status).toBe(202);
     expect(body.job.timeoutMs).toBe(5000);
+    expect(body.job).not.toHaveProperty("cwd");
+    expect(body.job).not.toHaveProperty("stdout");
+    expect(body.job).not.toHaveProperty("stderr");
   });
 
   it("resolves URL-encoded job ids when the browser polls job state", async () => {
@@ -409,6 +519,206 @@ describe("cognopticon daemon endpoints", () => {
 
     expect(lookupResponse.status).toBe(200);
     expect(lookupBody.job.id).toBe(createBody.jobId);
+    expect(lookupBody.job).not.toHaveProperty("cwd");
+    expect(lookupBody.job).not.toHaveProperty("stdout");
+    expect(lookupBody.job).not.toHaveProperty("stderr");
+    expect(JSON.stringify(lookupBody)).not.toContain(root);
+  });
+
+  it("projects live daemon jobs as bounded run records with caller metadata", async () => {
+    const spawn = createSpawnStub({ stdout: "green\n" });
+    const { url, root } = await startTestDaemon({ spawn });
+
+    const createResponse = await postJson(url, "/api/jobs", {
+      runId: "verify:demo-project",
+      projectId: "demo-project",
+      title: "Demo Project verification",
+      cwd: root,
+      command: "npm",
+      args: ["run", "test"]
+    });
+    const createBody = await createResponse.json();
+    await pollJob(url, createBody.jobId);
+
+    const stateResponse = await fetch(`${url}/api/runs/state`, { headers: { Origin: "http://local.test" } });
+    const stateBody = await stateResponse.json();
+    const events = readEvents(root);
+
+    expect(stateResponse.status).toBe(200);
+    expect(stateBody.runs[0]).toMatchObject({
+      id: "verify:demo-project",
+      projectId: "demo-project",
+      title: "Demo Project verification",
+      status: "completed",
+      command: "npm run test",
+      jobId: createBody.jobId
+    });
+    expect(stateBody.jobs[0]).toMatchObject({
+      id: createBody.jobId,
+      runId: "verify:demo-project",
+      projectId: "demo-project",
+      title: "Demo Project verification",
+      status: "completed"
+    });
+    expect(stateBody.jobs[0].events.map((event) => event.type)).toEqual(["job_queued", "job_started", "job_output", "job_finished"]);
+    expect(stateBody.jobs[0].events.find((event) => event.type === "job_output")).toMatchObject({
+      summary: "stdout output observed",
+      stream: "stdout",
+      truncated: false
+    });
+    expect(events[0].payload).toMatchObject({
+      runId: "verify:demo-project",
+      projectId: "demo-project",
+      title: "Demo Project verification"
+    });
+    expect(stateBody.jobs[0]).not.toHaveProperty("cwd");
+    expect(stateBody.jobs[0]).not.toHaveProperty("stdout");
+    expect(stateBody.jobs[0]).not.toHaveProperty("stderr");
+  });
+
+  it("hydrates sanitized daemon run state from persisted job events", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cognopticon-run-state-"));
+    const stateDir = join(root, ".cognopticon", "state");
+    mkdirSync(stateDir, { recursive: true });
+    writeDemoFixtures(root);
+    writeFileSync(join(stateDir, "events.jsonl"), [
+      JSON.stringify({
+        id: "daemon:queued",
+        type: "job_queued",
+        payload: {
+          id: "job:completed",
+          runId: "verify:launchable-tool",
+          projectId: "launchable-tool",
+          title: `Verify launchable tool ${join(root, "private-title.txt")}`,
+          cwd: root,
+          command: "npm",
+          args: ["run", "test"],
+          status: "queued",
+          ok: false,
+          stdout: join(root, "private-stdout.txt"),
+          stderr: "",
+          createdAt: "2026-05-24T12:00:00.000Z",
+          updatedAt: "2026-05-24T12:00:00.000Z",
+          timeoutMs: 5000
+        },
+        createdAt: "2026-05-24T12:00:00.000Z"
+      }),
+      JSON.stringify({
+        id: "daemon:finished",
+        type: "job_finished",
+        payload: {
+          id: "job:completed",
+          runId: "verify:launchable-tool",
+          projectId: "launchable-tool",
+          title: `Verify launchable tool ${join(root, "private-title.txt")}`,
+          cwd: root,
+          command: "npm",
+          args: ["run", "test"],
+          status: "completed",
+          ok: true,
+          exitCode: 0,
+          stdout: join(root, "private-stdout.txt"),
+          stderr: "",
+          createdAt: "2026-05-24T12:00:00.000Z",
+          startedAt: "2026-05-24T12:00:01.000Z",
+          completedAt: "2026-05-24T12:00:03.000Z",
+          updatedAt: "2026-05-24T12:00:03.000Z",
+          timeoutMs: 5000
+        },
+        createdAt: "2026-05-24T12:00:03.000Z"
+      }),
+      JSON.stringify({
+        id: "daemon:output",
+        type: "job_output",
+        payload: {
+          jobId: "job:completed",
+          stream: "stdout",
+          text: `proof output from ${join(root, "private-output.txt")}`,
+          truncated: false
+        },
+        createdAt: "2026-05-24T12:00:02.000Z"
+      }),
+      JSON.stringify({
+        id: "daemon:started",
+        type: "job_started",
+        payload: {
+          id: "job:interrupted",
+          runId: "launch:launchable-tool:1",
+          projectId: "launchable-tool",
+          title: `Launch ${join(root, "private-launch.txt")}`,
+          cwd: root,
+          command: "npm",
+          args: ["run", "test"],
+          status: "running",
+          ok: false,
+          createdAt: "2026-05-24T12:10:00.000Z",
+          startedAt: "2026-05-24T12:10:01.000Z",
+          updatedAt: "2026-05-24T12:10:01.000Z",
+          timeoutMs: 5000
+        },
+        createdAt: "2026-05-24T12:10:01.000Z"
+      })
+    ].join("\n") + "\n");
+
+    const daemon = createDaemon({
+      root,
+      configPath: false,
+      config: {
+        host: "127.0.0.1",
+        port: 0,
+        allowedRoots: [root],
+        allowedOrigins: ["http://local.test"],
+        daemon: { maxRequestBytes: 4096 },
+        agents: { maxThreads: 1, maxRuntimeMs: 5000 }
+      },
+      spawn: createSpawnStub(),
+      now: () => "2026-05-24T12:20:00.000Z",
+      randomId: createDeterministicIds()
+    });
+    await new Promise((resolveListen) => daemon.server.listen(0, "127.0.0.1", resolveListen));
+    daemons.push(daemon);
+    const address = daemon.server.address();
+    const url = `http://127.0.0.1:${address.port}`;
+
+    const stateResponse = await fetch(`${url}/api/runs/state`, { headers: { Origin: "http://local.test" } });
+    const stateBody = await stateResponse.json();
+    const stateText = JSON.stringify(stateBody);
+
+    expect(stateResponse.status).toBe(200);
+    expect(stateBody.runs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "verify:launchable-tool",
+        projectId: "launchable-tool",
+        status: "completed",
+        command: "npm run test",
+        jobId: "job:completed"
+      }),
+      expect.objectContaining({
+        id: "launch:launchable-tool:1",
+        projectId: "launchable-tool",
+        status: "failed",
+        summary: "Daemon restarted before this job reached a terminal event.",
+        jobId: "job:interrupted"
+      })
+    ]));
+    expect(stateBody.jobs.find((job) => job.id === "job:interrupted")).toMatchObject({
+      status: "failed",
+      interrupted: true,
+      error: "Daemon restarted before this job reached a terminal event."
+    });
+    expect(stateBody.jobs.find((job) => job.id === "job:completed").events).toEqual([
+      expect.objectContaining({ type: "job_queued", summary: "Queued npm run test" }),
+      expect.objectContaining({ type: "job_output", summary: "stdout output observed", stream: "stdout", truncated: false }),
+      expect.objectContaining({ type: "job_finished", summary: "completed exit 0", status: "completed", exitCode: 0 })
+    ]);
+    expect(stateText).not.toContain(root);
+    expect(stateText).not.toContain("private-title.txt");
+    expect(stateText).not.toContain("private-stdout.txt");
+    expect(stateText).not.toContain("private-output.txt");
+    expect(stateText).not.toContain("private-launch.txt");
+    expect(stateText).not.toContain("\"cwd\"");
+    expect(stateText).not.toContain("\"stdout\":");
+    expect(stateText).not.toContain("\"stderr\":");
   });
 
   it("records orchestrator task events only for known sessions", async () => {
@@ -632,6 +942,34 @@ describe("cognopticon daemon endpoints", () => {
     expect(snapshotText).toContain("orchestrator_session_started");
   });
 
+  it("serves event snapshots from a bounded tail window", async () => {
+    const { url, root } = await startTestDaemon({
+      config: { daemon: { maxEventSnapshotBytes: 4096 } }
+    });
+    const eventPath = join(root, ".cognopticon", "state", "events.jsonl");
+    const events = Array.from({ length: 100 }, (_, index) => JSON.stringify({
+      id: `daemon:old-${index}`,
+      type: "orchestrator_session_started",
+      payload: { sessionId: `orchestrator:${index}`, message: `old event ${index} ${"x".repeat(220)}` },
+      createdAt: `2026-05-22T12:${String(index).padStart(2, "0")}:00.000Z`
+    }));
+    events.push(JSON.stringify({
+      id: "daemon:newest",
+      type: "orchestrator_session_started",
+      payload: { sessionId: "orchestrator:newest", message: "tail-session-visible" },
+      createdAt: "2026-05-22T13:00:00.000Z"
+    }));
+    writeFileSync(eventPath, `${events.join("\n")}\n`);
+
+    const response = await fetch(`${url}/api/events`, { headers: { Origin: "http://local.test" } });
+    const snapshot = await readSseSnapshot(response);
+    const snapshotText = snapshot.join("\n");
+
+    expect(snapshot.length).toBeLessThanOrEqual(50);
+    expect(snapshotText).toContain("tail-session-visible");
+    expect(snapshotText).not.toContain("old event 0");
+  });
+
   it("serves active profile state without falling back to legacy global workspace data", async () => {
     const root = mkdtempSync(join(tmpdir(), "cognopticon-profile-daemon-"));
     mkdirSync(join(root, "src", "data"), { recursive: true });
@@ -642,8 +980,8 @@ describe("cognopticon daemon endpoints", () => {
     writeFileSync(join(root, ".cognopticon", "config.json"), JSON.stringify({
       activeProfile: "laptop",
       profiles: {
-        laptop: { id: "laptop", label: "Laptop", allowedRoots: [root] },
-        desktop: { id: "desktop", label: "Desktop", allowedRoots: [root] }
+        laptop: { id: "laptop", label: `Laptop ${root}`, allowedRoots: [root] },
+        desktop: { id: "desktop", label: `Desktop ${join(root, "desktop-secret")}`, allowedRoots: [root] }
       }
     }));
 
@@ -670,10 +1008,18 @@ describe("cognopticon daemon endpoints", () => {
 
     const profiles = await fetch(`${url}/api/profiles`, { headers: { Origin: "http://local.test" } });
     const body = await profiles.json();
-    const stateDirs = Object.fromEntries(body.profiles.map((profile) => [profile.id, profile.stateDir]));
-    expect(stateDirs.laptop).toContain(join(".cognopticon", "profiles", "laptop", "state"));
-    expect(stateDirs.desktop).toContain(join(".cognopticon", "profiles", "desktop", "state"));
-    expect(stateDirs.desktop).not.toBe(stateDirs.laptop);
+    const serialized = JSON.stringify(body);
+
+    expect(body.activeProfile).toMatchObject({ id: "laptop", label: "Laptop [redacted path]", active: true, allowedRootCount: 1 });
+    expect(body.profiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "laptop", label: "Laptop [redacted path]", active: true, allowedRootCount: 1 }),
+      expect.objectContaining({ id: "desktop", label: "Desktop [redacted path]", active: false, allowedRootCount: 1 })
+    ]));
+    expect(serialized).not.toContain(root);
+    expect(serialized).not.toContain("desktop-secret");
+    expect(serialized).not.toContain("stateDir");
+    expect(serialized).not.toContain("allowedRoots");
+    expect(serialized).not.toContain(".cognopticon");
   });
 });
 

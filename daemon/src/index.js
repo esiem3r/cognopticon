@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { stat } from "node:fs/promises";
-import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
+import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -50,16 +50,21 @@ export function createDaemon(options = {}) {
 
   const jobs = new Map();
   const queue = [];
+  const jobLedger = new Map();
   const eventClients = new Set();
   const orchestratorSessions = new Map();
   const taskEvents = [];
+  const maxJobLedgerRecords = Number(config.daemon?.maxJobLedgerRecords ?? 200);
+  const maxPublicRunRecords = Number(config.daemon?.maxPublicRunRecords ?? 50);
   const maxOutputBytes = Number(config.daemon?.maxOutputBytes ?? 256000);
+  const maxEventOutputBytes = clamp(Number(config.daemon?.maxEventOutputBytes ?? Math.min(maxOutputBytes, 8192)), 0, Math.max(0, maxOutputBytes));
+  const maxEventSnapshotBytes = clamp(Number(config.daemon?.maxEventSnapshotBytes ?? 262144), 4096, 1048576);
   const maxRequestBytes = Number(config.daemon?.maxRequestBytes ?? 65536);
   const maxRuntimeMs = Number(config.agents?.maxRuntimeMs ?? 900000);
   const spawnProcess = options.spawn ?? spawn;
   const now = options.now ?? (() => new Date().toISOString());
   const randomId = options.randomId ?? (() => Math.random().toString(36).slice(2));
-  hydrateOrchestratorState();
+  hydrateDaemonState();
 
   const server = createServer(async (request, response) => {
     try {
@@ -69,23 +74,16 @@ export function createDaemon(options = {}) {
       if (!request.url) return send(response, 404, { error: "missing url" });
       const url = new URL(request.url, `http://${config.host}:${config.port}`);
       if (url.searchParams.has("daemonToken")) throw new Error("Cognopticon daemon token must be sent in X-Cognopticon-Token header");
-      if (url.pathname === "/api/health") return send(response, 200, {
+      if (url.pathname === "/api/health") return send(response, 200, healthSnapshot());
+      if (url.pathname === "/api/profiles") return send(response, 200, sanitizeObjectStrings({
         ok: true,
-        daemon: "cognopticon",
-        host: config.host,
-        profile: config.profile,
-        allowedRoots: config.allowedRoots,
-        jobs: jobSummary(),
-        orchestrator: orchestratorSummary()
-      });
-      if (url.pathname === "/api/profiles") return send(response, 200, {
-        ok: true,
-        activeProfile: config.profile,
+        activeProfile: publicProfile(config.profile, { active: true, allowedRootCount: config.allowedRoots.length }),
         profiles: publicProfiles(runtimeConfig, root)
-      });
+      }));
       if (url.pathname === "/api/workspace") return await sendWorkspace(response);
       if (url.pathname === "/api/events") return await sendEvents(response);
       if (request.method === "GET" && url.pathname === "/api/orchestrator/state") return send(response, 200, orchestratorState());
+      if (request.method === "GET" && url.pathname === "/api/runs/state") return send(response, 200, daemonRunState());
       if (request.method === "POST" && url.pathname === "/api/orchestrator/session") return await startOrchestratorSession(request, response);
       if (request.method === "POST" && url.pathname === "/api/orchestrator/task-event") return await recordTaskEvent(request, response);
       if (request.method === "POST" && url.pathname === "/api/actions/open-path") return await openPath(request, response);
@@ -113,7 +111,7 @@ export function createDaemon(options = {}) {
   async function sendEvents(response) {
     response.writeHead(200, sseHeaders.call(response));
     response.flushHeaders?.();
-    const snapshot = eventSnapshotLines(eventPath, sanitizeEventLine);
+    const snapshot = eventSnapshotLines(eventPath, sanitizeEventLine, maxEventSnapshotBytes);
     if (snapshot.length) response.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
     eventClients.add(response);
     requestClose(response, () => eventClients.delete(response));
@@ -122,9 +120,10 @@ export function createDaemon(options = {}) {
   async function openPath(request, response) {
     const body = await readJson(request);
     const path = resolveInsideAllowedRoots(String(body.path ?? ""), config.allowedRoots);
-    const result = spawnProcess(process.platform === "win32" ? "cmd.exe" : "xdg-open", process.platform === "win32" ? ["/c", "start", "", path] : [path], { shell: false, detached: true, stdio: "ignore" });
+    const opener = openPathSpawnSpec(path);
+    const result = spawnProcess(opener.command, opener.args, { shell: false, detached: true, stdio: "ignore" });
     result.unref();
-    const payload = { ok: true, actionId: "open-path", eventId: logEvent("file_opened", { path }), message: `Opened ${path}` };
+    const payload = { ok: true, actionId: "open-path", eventId: logEvent("file_opened", { path }), message: "Opened allowed local path." };
     send(response, 200, payload);
   }
 
@@ -134,7 +133,7 @@ export function createDaemon(options = {}) {
     assertAllowlistedCommand(config.editorCommand, [...config.allowedCommands, "code", "notepad.exe"]);
     const result = spawnProcess(config.editorCommand, [path], { shell: false, detached: true, stdio: "ignore" });
     result.unref();
-    send(response, 200, { ok: true, actionId: "open-editor", eventId: logEvent("file_opened", { path, editor: config.editorCommand }), message: `Opened editor for ${path}` });
+    send(response, 200, { ok: true, actionId: "open-editor", eventId: logEvent("file_opened", { path, editor: config.editorCommand }), message: "Opened configured editor for allowed local path." });
   }
 
   async function startOrchestratorSession(request, response) {
@@ -201,8 +200,8 @@ export function createDaemon(options = {}) {
         jobId: finished.id,
         eventId: finished.eventId,
         message: `${finished.command} exited ${finished.exitCode}`,
-        stdout: finished.stdout,
-        stderr: finished.stderr
+        stdout: typeof job.stdout === "string" ? redactSensitiveText(job.stdout) : undefined,
+        stderr: typeof job.stderr === "string" ? redactSensitiveText(job.stderr) : undefined
       });
     }).catch((error) => send(response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) }));
   }
@@ -215,6 +214,9 @@ export function createDaemon(options = {}) {
     const timestamp = now();
     return {
       id: makeId("job"),
+      runId: optionalString(body.runId, 180),
+      projectId: optionalString(body.projectId, 180),
+      title: optionalString(body.title, 240),
       cwd,
       command,
       args,
@@ -223,6 +225,10 @@ export function createDaemon(options = {}) {
       stderr: "",
       stdoutBytes: 0,
       stderrBytes: 0,
+      stdoutEventBytes: 0,
+      stderrEventBytes: 0,
+      stdoutEventTruncationLogged: false,
+      stderrEventTruncationLogged: false,
       outputTruncated: false,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -271,8 +277,19 @@ export function createDaemon(options = {}) {
       job[byteKey] += Buffer.byteLength(kept);
     }
     if (Buffer.byteLength(text) > remaining) job.outputTruncated = true;
+
+    const eventByteKey = `${stream}EventBytes`;
+    const eventFlagKey = `${stream}EventTruncationLogged`;
+    const eventRemaining = Math.max(0, maxEventOutputBytes - job[eventByteKey]);
+    const eventText = eventRemaining > 0 ? truncateUtf8Text(text, eventRemaining) : "";
+    if (eventText) job[eventByteKey] += Buffer.byteLength(eventText);
+    const eventTruncated = Buffer.byteLength(text) > eventRemaining;
+    if (eventTruncated) job.outputTruncated = true;
     job.updatedAt = now();
-    logEvent("job_output", { jobId: job.id, stream, text: text.slice(0, 4000), truncated: job.outputTruncated });
+    if (eventText || !job[eventFlagKey]) {
+      logEvent("job_output", { jobId: job.id, stream, text: eventText, truncated: job.outputTruncated });
+      if (eventTruncated) job[eventFlagKey] = true;
+    }
   }
 
   function finishJob(job, code, signal) {
@@ -325,17 +342,17 @@ export function createDaemon(options = {}) {
   }
 
   function publicJob(job) {
-    return {
+    const safeJob = {
       id: job.id,
-      cwd: job.cwd,
-      command: job.command,
+      runId: job.runId,
+      projectId: job.projectId,
+      title: job.title,
+      command: job.command ?? "daemon",
       args: job.args,
       status: job.status,
       ok: Boolean(job.ok),
       exitCode: job.exitCode,
       signal: job.signal,
-      stdout: job.stdout,
-      stderr: job.stderr,
       outputTruncated: job.outputTruncated,
       createdAt: job.createdAt,
       startedAt: job.startedAt,
@@ -345,6 +362,9 @@ export function createDaemon(options = {}) {
       eventId: job.eventId,
       error: job.error
     };
+    return Object.fromEntries(
+      Object.entries(sanitizeObjectStrings(safeJob)).filter(([, value]) => value !== undefined)
+    );
   }
 
   function jobSummary() {
@@ -354,11 +374,25 @@ export function createDaemon(options = {}) {
   }
 
   function orchestratorSummary() {
+    const latest = latestSessionId();
     return {
       sessions: orchestratorSessions.size,
       taskEvents: taskEvents.length,
-      latestSessionId: latestSessionId()
+      latestSessionId: latest ? redactSensitiveText(latest) : undefined
     };
+  }
+
+  function healthSnapshot() {
+    return sanitizeObjectStrings({
+      ok: true,
+      daemon: "cognopticon",
+      host: config.host,
+      runtimeMode: "local_daemon",
+      profile: publicHealthProfile(config.profile),
+      allowedRootCount: config.allowedRoots.length,
+      jobs: jobSummary(),
+      orchestrator: orchestratorSummary()
+    });
   }
 
   function latestSessionId() {
@@ -377,11 +411,13 @@ export function createDaemon(options = {}) {
     };
   }
 
-  function hydrateOrchestratorState() {
+  function hydrateDaemonState() {
     if (!existsSync(eventPath)) return;
     forEachFileLine(eventPath, (line) => {
       try {
-        hydrateOrchestratorEvent(JSON.parse(line));
+        const event = sanitizeEvent(JSON.parse(line));
+        hydrateOrchestratorEvent(event);
+        hydrateJobEvent(event, { historical: true });
       } catch {
         // Ignore malformed historical daemon lines; live writes remain structured.
       }
@@ -436,9 +472,205 @@ export function createDaemon(options = {}) {
     return completed;
   }
 
+  function daemonRunState() {
+    const jobs = publicJobLedgerEntries();
+    return {
+      ok: true,
+      jobs,
+      runs: publicRunRecordsFromJobs(jobs)
+    };
+  }
+
+  function publicJobLedgerEntries() {
+    return [...jobLedger.values()]
+      .map(publicJobLedgerEntry)
+      .sort(compareUpdatedAt)
+      .slice(0, maxPublicRunRecords);
+  }
+
+  function publicJobLedgerEntry(job) {
+    const interrupted = Boolean(job.historical && !isFinishedStatus(job.status));
+    const status = interrupted ? "failed" : job.status;
+    const entry = {
+      id: job.id,
+      runId: job.runId,
+      projectId: job.projectId,
+      title: job.title,
+      command: job.command,
+      args: Array.isArray(job.args) ? job.args : [],
+      status,
+      ok: status === "completed" && Boolean(job.ok),
+      exitCode: job.exitCode,
+      signal: job.signal,
+      outputTruncated: Boolean(job.outputTruncated),
+      createdAt: job.createdAt,
+      startedAt: job.startedAt,
+      completedAt: interrupted ? job.completedAt ?? job.updatedAt : job.completedAt,
+      updatedAt: job.updatedAt ?? job.completedAt ?? job.startedAt ?? job.createdAt,
+      timeoutMs: job.timeoutMs,
+      eventId: job.eventId,
+      error: interrupted ? "Daemon restarted before this job reached a terminal event." : job.error,
+      interrupted,
+      events: publicJobTimelineEvents(job.events)
+    };
+    return Object.fromEntries(
+      Object.entries(sanitizeObjectStrings(entry)).filter(([, value]) => value !== undefined)
+    );
+  }
+
+  function publicRunRecordsFromJobs(jobs) {
+    const runsById = new Map();
+    for (const job of jobs) {
+      const run = publicRunRecordFromJob(job);
+      const previous = runsById.get(run.id);
+      if (!previous || compareUpdatedAt(run, previous) < 0) runsById.set(run.id, run);
+    }
+    return [...runsById.values()].sort(compareUpdatedAt).slice(0, maxPublicRunRecords);
+  }
+
+  function publicRunRecordFromJob(job) {
+    const commandText = [job.command, ...(Array.isArray(job.args) ? job.args : [])].filter(Boolean).join(" ").trim();
+    return Object.fromEntries(Object.entries(sanitizeObjectStrings({
+      id: job.runId ?? `job:${job.id}`,
+      projectId: job.projectId ?? "local-runtime",
+      title: job.title ?? (commandText ? `Daemon job: ${commandText}` : "Daemon job"),
+      status: runStatusForJob(job.status),
+      summary: runSummaryForJob(job, commandText),
+      command: commandText || undefined,
+      jobId: job.id,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt ?? job.completedAt ?? job.startedAt ?? job.createdAt
+    })).filter(([, value]) => value !== undefined));
+  }
+
+  function runStatusForJob(status) {
+    if (status === "queued") return "dispatched";
+    if (status === "running") return "running";
+    if (status === "completed") return "completed";
+    return "failed";
+  }
+
+  function runSummaryForJob(job, commandText) {
+    const label = commandText || "daemon job";
+    if (job.interrupted) return "Daemon restarted before this job reached a terminal event.";
+    if (job.status === "queued") return `Queued daemon job: ${label}`;
+    if (job.status === "running") return `Daemon job ${job.id} running: ${label}`;
+    if (job.status === "completed") return `${label} exited ${job.exitCode ?? 0}`;
+    if (job.status === "timed_out") return `${label} timed out`;
+    if (job.status === "cancelled") return `${label} cancelled`;
+    if (typeof job.error === "string" && job.error) return `${label} failed: ${job.error}`;
+    return `${label} exited ${job.exitCode ?? "unknown"}`;
+  }
+
+  function hydrateJobEvent(event, options = {}) {
+    if (!event?.type?.startsWith?.("job_")) return;
+    if (event.type === "job_output") {
+      const jobId = typeof event.payload?.jobId === "string" ? event.payload.jobId : undefined;
+      if (!jobId || !jobLedger.has(jobId)) return;
+      const existing = jobLedger.get(jobId);
+      existing.outputTruncated = Boolean(event.payload.truncated ?? existing.outputTruncated);
+      existing.updatedAt = event.createdAt ?? existing.updatedAt;
+      existing.historical = Boolean(existing.historical && options.historical);
+      existing.events = appendJobTimelineEvent(existing.events, event);
+      trimJobLedger();
+      return;
+    }
+    if (!event.payload || typeof event.payload !== "object" || typeof event.payload.id !== "string") return;
+    const existing = jobLedger.get(event.payload.id);
+    const fields = jobLedgerFields(event.payload);
+    const next = {
+      ...(existing ?? { id: event.payload.id, args: [], status: "queued", createdAt: event.createdAt, updatedAt: event.createdAt }),
+      ...fields,
+      id: event.payload.id,
+      historical: existing ? Boolean(existing.historical && options.historical) : Boolean(options.historical)
+    };
+    next.createdAt = next.createdAt ?? event.createdAt;
+    next.updatedAt = fields.updatedAt ?? fields.completedAt ?? fields.startedAt ?? event.createdAt ?? next.updatedAt ?? next.createdAt;
+    next.events = appendJobTimelineEvent(existing?.events, event);
+    jobLedger.set(next.id, next);
+    trimJobLedger();
+  }
+
+  function appendJobTimelineEvent(events = [], event) {
+    const nextEvent = jobTimelineEvent(event);
+    if (!nextEvent) return events;
+    const nextEvents = [...events.filter((item) => item.id !== nextEvent.id), nextEvent];
+    return nextEvents.sort(compareCreatedAt).slice(-80);
+  }
+
+  function publicJobTimelineEvents(events = []) {
+    return events.map((event) => sanitizeObjectStrings(event)).filter(isPublicJobTimelineEvent).sort(compareCreatedAt);
+  }
+
+  function jobTimelineEvent(event) {
+    const payload = event.payload ?? {};
+    const summary = jobTimelineSummary(event.type, payload);
+    if (!summary) return undefined;
+    return Object.fromEntries(Object.entries({
+      id: optionalString(event.id, 180) ?? makeId("job-event"),
+      type: event.type,
+      createdAt: optionalString(event.createdAt, 80),
+      summary,
+      stream: event.type === "job_output" ? optionalString(payload.stream, 20) : undefined,
+      truncated: event.type === "job_output" ? Boolean(payload.truncated) : undefined,
+      status: isJobStatus(payload.status) ? payload.status : undefined,
+      exitCode: Number.isInteger(payload.exitCode) || payload.exitCode === null ? payload.exitCode : undefined,
+      signal: typeof payload.signal === "string" || payload.signal === null ? payload.signal : undefined
+    }).filter(([, value]) => value !== undefined));
+  }
+
+  function jobTimelineSummary(type, payload) {
+    const commandText = [payload.command, ...(Array.isArray(payload.args) ? payload.args : [])].filter((item) => typeof item === "string" && item).join(" ").trim();
+    if (type === "job_queued") return commandText ? `Queued ${commandText}` : "Job queued";
+    if (type === "job_started") return commandText ? `Started ${commandText}` : "Job started";
+    if (type === "job_output") {
+      const stream = payload.stream === "stderr" ? "stderr" : "stdout";
+      return `${stream} output observed${payload.truncated ? " (truncated)" : ""}`;
+    }
+    if (type === "job_timeout") return "Timeout signal sent";
+    if (type === "job_finished") {
+      const status = isJobStatus(payload.status) ? payload.status : "finished";
+      const exit = Number.isInteger(payload.exitCode) ? ` exit ${payload.exitCode}` : "";
+      return `${status}${exit}`.trim();
+    }
+    return undefined;
+  }
+
+  function jobLedgerFields(payload) {
+    const fields = {
+      runId: optionalString(payload.runId, 180),
+      projectId: optionalString(payload.projectId, 180),
+      title: optionalString(payload.title, 240),
+      command: optionalString(payload.command, 200),
+      args: Array.isArray(payload.args) ? payload.args.filter((item) => typeof item === "string").slice(0, 24) : undefined,
+      status: isJobStatus(payload.status) ? payload.status : undefined,
+      ok: payload.ok === undefined ? undefined : Boolean(payload.ok),
+      exitCode: Number.isInteger(payload.exitCode) || payload.exitCode === null ? payload.exitCode : undefined,
+      signal: typeof payload.signal === "string" || payload.signal === null ? payload.signal : undefined,
+      outputTruncated: payload.outputTruncated === undefined ? undefined : Boolean(payload.outputTruncated),
+      createdAt: optionalString(payload.createdAt, 80),
+      startedAt: optionalString(payload.startedAt, 80),
+      completedAt: optionalString(payload.completedAt, 80),
+      updatedAt: optionalString(payload.updatedAt, 80),
+      timeoutMs: Number.isFinite(Number(payload.timeoutMs)) ? Number(payload.timeoutMs) : undefined,
+      eventId: optionalString(payload.eventId, 180),
+      error: optionalString(payload.error, 500)
+    };
+    return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
+  }
+
+  function trimJobLedger() {
+    if (jobLedger.size <= maxJobLedgerRecords) return;
+    const keep = new Set([...jobLedger.values()].sort(compareUpdatedAt).slice(0, maxJobLedgerRecords).map((job) => job.id));
+    for (const id of jobLedger.keys()) {
+      if (!keep.has(id)) jobLedger.delete(id);
+    }
+  }
+
   function logEvent(type, payload) {
     const id = makeId("daemon");
     const event = sanitizeEvent({ id, type, payload, createdAt: now() });
+    hydrateJobEvent(event, { historical: false });
     writeFileSync(eventPath, `${JSON.stringify(event)}\n`, { flag: "a" });
     for (const client of eventClients) client.write(`event: ${type}\ndata: ${JSON.stringify(event)}\n\n`);
     return id;
@@ -471,10 +703,13 @@ export function createDaemon(options = {}) {
       return sanitizeJobEventPayload(payload);
     }
     if (type === "job_output") {
+      const text = typeof payload.text === "string"
+        ? truncateUtf8Text(redactSensitiveText(payload.text), maxEventOutputBytes)
+        : payload.text;
       return sanitizeObjectStrings({
         jobId: payload.jobId,
         stream: payload.stream,
-        text: typeof payload.text === "string" ? redactSensitiveText(payload.text) : payload.text,
+        text,
         truncated: Boolean(payload.truncated)
       });
     }
@@ -490,6 +725,9 @@ export function createDaemon(options = {}) {
   function sanitizeJobEventPayload(payload) {
     const safePayload = {
       id: payload.id,
+      runId: payload.runId,
+      projectId: payload.projectId,
+      title: payload.title,
       command: payload.command,
       args: Array.isArray(payload.args) ? payload.args : [],
       status: payload.status,
@@ -656,6 +894,7 @@ export function createDaemon(options = {}) {
     state: {
       jobs,
       queue,
+      jobLedger,
       eventClients,
       orchestratorSessions,
       taskEvents
@@ -663,13 +902,23 @@ export function createDaemon(options = {}) {
   };
 }
 
-function publicProfile(profile) {
+function publicProfile(profile, options = {}) {
+  if (!profile) return undefined;
+  return Object.fromEntries(Object.entries({
+    id: profile.id,
+    label: profile.label,
+    deviceId: profile.deviceId,
+    active: options.active,
+    allowedRootCount: options.allowedRootCount ?? (Array.isArray(profile.allowedRoots) ? profile.allowedRoots.length : undefined)
+  }).filter(([, value]) => value !== undefined));
+}
+
+function publicHealthProfile(profile) {
   if (!profile) return undefined;
   return {
     id: profile.id,
     label: profile.label,
-    deviceId: profile.deviceId,
-    stateDir: profile.paths?.stateDir
+    deviceId: profile.deviceId
   };
 }
 
@@ -678,7 +927,7 @@ function publicProfiles(runtimeConfig, root) {
   const ids = new Set([runtimeConfig.activeProfile, ...Object.keys(configured)]);
   return [...ids].filter(Boolean).map((id) => {
     const profile = id === runtimeConfig.profile.id ? runtimeConfig.profile : normalizeProfile(root, id, configured[id] ?? {});
-    return publicProfile(profile);
+    return publicProfile(profile, { active: id === runtimeConfig.profile.id });
   });
 }
 
@@ -705,6 +954,12 @@ export function startDaemon(options = {}) {
     console.log(`Cognopticon local stack listening at http://${daemon.config.host}:${port}/`);
   });
   return daemon;
+}
+
+export function openPathSpawnSpec(path, platform = process.platform) {
+  if (platform === "darwin") return { command: "open", args: [path] };
+  if (platform === "win32") return { command: "explorer.exe", args: [path] };
+  return { command: "xdg-open", args: [path] };
 }
 
 export function assertSafeDaemonCommand(command, args, cwd, config) {
@@ -744,7 +999,40 @@ function contentType(file) {
 }
 
 function isFinished(job) {
-  return ["completed", "failed", "cancelled", "timed_out"].includes(job.status);
+  return isFinishedStatus(job.status);
+}
+
+function isFinishedStatus(status) {
+  return ["completed", "failed", "cancelled", "timed_out"].includes(status);
+}
+
+function isJobStatus(status) {
+  return ["queued", "running", "completed", "failed", "cancelled", "timed_out"].includes(status);
+}
+
+function compareUpdatedAt(left, right) {
+  const leftTime = String(left.updatedAt ?? left.completedAt ?? left.startedAt ?? left.createdAt ?? "");
+  const rightTime = String(right.updatedAt ?? right.completedAt ?? right.startedAt ?? right.createdAt ?? "");
+  return rightTime.localeCompare(leftTime);
+}
+
+function compareCreatedAt(left, right) {
+  return String(left.createdAt ?? "").localeCompare(String(right.createdAt ?? ""));
+}
+
+function isPublicJobTimelineEvent(value) {
+  return Boolean(value)
+    && typeof value === "object"
+    && typeof value.id === "string"
+    && typeof value.type === "string"
+    && typeof value.createdAt === "string"
+    && typeof value.summary === "string";
+}
+
+function optionalString(value, maxLength = 200) {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, maxLength) : undefined;
 }
 
 function isRequestBoundaryError(error) {
@@ -827,9 +1115,29 @@ function forEachFileLine(path, onLine) {
   }
 }
 
-function eventSnapshotLines(path, sanitizeLine = sanitizeVisibleEventLine) {
+function eventSnapshotLines(path, sanitizeLine = sanitizeVisibleEventLine, maxBytes = 262144) {
   if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map(sanitizeLine).filter(Boolean).slice(-50);
+  const size = statSync(path).size;
+  const readBytes = Math.min(size, maxBytes);
+  const fd = openSync(path, "r");
+  const buffer = Buffer.allocUnsafe(readBytes);
+  try {
+    readSync(fd, buffer, 0, readBytes, size - readBytes);
+  } finally {
+    closeSync(fd);
+  }
+  const lines = buffer.toString("utf8").split("\n");
+  if (size > readBytes) lines.shift();
+  return lines.map((line) => line.trim()).filter(Boolean).map(sanitizeLine).filter(Boolean).slice(-50);
+}
+
+function truncateUtf8Text(value, maxBytes) {
+  if (maxBytes <= 0) return "";
+  const bytes = Buffer.byteLength(value);
+  if (bytes <= maxBytes) return value;
+  let text = Buffer.from(value).subarray(0, maxBytes).toString();
+  while (Buffer.byteLength(text) > maxBytes) text = text.slice(0, -1);
+  return text;
 }
 
 function sanitizeVisibleEventLine(line) {
@@ -866,6 +1174,7 @@ function requestHasQueryToken(request) {
 function actionForEndpoint(endpoint) {
   if (endpoint === "/api/orchestrator/session") return "orchestrator_session";
   if (endpoint === "/api/orchestrator/task-event") return "orchestrator_task_event";
+  if (endpoint === "/api/runs/state") return "run_state";
   if (endpoint === "/api/actions/run-command") return "run_command";
   if (endpoint === "/api/actions/open-path") return "open_path";
   if (endpoint === "/api/actions/open-editor") return "open_editor";

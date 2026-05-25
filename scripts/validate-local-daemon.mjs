@@ -183,8 +183,11 @@ async function assertHealth(baseUrl) {
   assert(response.status === 200, `daemon health returned ${response.status}`);
   assert(body.ok === true, "daemon health should be ok");
   assert(body.profile?.id === profileId, "daemon health should expose the temporary profile id");
-  assert(body.profile?.stateDir === stateDir, "daemon health should point at temporary profile state");
-  assert(Array.isArray(body.allowedRoots) && body.allowedRoots.length === 1 && body.allowedRoots[0] === projectRoot, "daemon health should only expose the temporary allowed root");
+  assert(!("stateDir" in (body.profile ?? {})), "daemon health should not expose the temporary profile state dir");
+  assert(!Array.isArray(body.allowedRoots), "daemon health should not expose allowed root paths");
+  assert(body.allowedRootCount === 1, "daemon health should expose only the allowed root count");
+  assert(!JSON.stringify(body).includes(stateDir), "daemon health should not include temporary profile state paths");
+  assert(!JSON.stringify(body).includes(projectRoot), "daemon health should not include temporary allowed root paths");
   assert(body.jobs?.queued === 0 && body.jobs?.running === 0, "daemon health should start with no queued or running jobs");
 }
 
@@ -198,8 +201,16 @@ async function assertProfiles(baseUrl) {
   assert(JSON.stringify(profileIds) === JSON.stringify([profileId, secondaryProfileId].sort()), "daemon profiles should list active and secondary profiles");
   const activeProfile = profiles.find((profile) => profile.id === profileId);
   const secondaryProfile = profiles.find((profile) => profile.id === secondaryProfileId);
-  assert(activeProfile?.stateDir === stateDir, "active profile should use the temporary profile state dir");
-  assert(secondaryProfile?.stateDir !== stateDir, "secondary profile should not reuse active profile state");
+  const serialized = JSON.stringify(body);
+  assert(activeProfile?.active === true, "active profile should be flagged without exposing its state dir");
+  assert(secondaryProfile?.active === false, "secondary profile should be listed as inactive");
+  assert(activeProfile?.allowedRootCount === 1, "active profile should expose only its allowed root count");
+  assert(secondaryProfile?.allowedRootCount === 1, "secondary profile should expose only its allowed root count");
+  assert(!serialized.includes("stateDir"), "daemon profiles should not include stateDir fields");
+  assert(!serialized.includes("allowedRoots"), "daemon profiles should not include allowed root path fields");
+  assert(!serialized.includes(stateDir), "daemon profiles should not leak the active profile state dir");
+  assert(!serialized.includes(projectRoot), "daemon profiles should not leak the active profile root");
+  assert(!serialized.includes(secondaryRoot), "daemon profiles should not leak secondary profile roots");
 }
 
 async function assertWorkspace(baseUrl) {
@@ -258,9 +269,11 @@ async function assertAllowlistedJob(baseUrl) {
   assert(job.ok === true, "daemon job should be ok");
   assert(job.command === "node", "daemon job should preserve command metadata");
   assert(JSON.stringify(job.args) === JSON.stringify(["proof.mjs"]), "daemon job should preserve argument metadata");
-  assert(job.stdout.includes("daemon-proof-ok"), "daemon job should capture stdout");
-  assert(job.stdout.includes(projectRoot), "direct daemon job lookup should keep raw local stdout for the requesting operator");
-  assert(job.stderr.includes(projectRoot), "direct daemon job lookup should keep raw local stderr for the requesting operator");
+  assert(!("cwd" in job), "direct daemon job lookup should not expose cwd");
+  assert(!("stdout" in job), "direct daemon job lookup should not expose raw stdout");
+  assert(!("stderr" in job), "direct daemon job lookup should not expose raw stderr");
+  assert(!JSON.stringify(job).includes(projectRoot), "direct daemon job lookup should not leak project root paths");
+  assert(!JSON.stringify(job).includes(stateDir), "direct daemon job lookup should not leak profile state paths");
   return job;
 }
 

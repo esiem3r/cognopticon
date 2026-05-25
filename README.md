@@ -19,9 +19,11 @@ The repository is intended for GitHub/source distribution. `package.json` remain
 
 ## Run The Public Demo
 
+For a first checkout, start with [Getting Started](docs/getting-started.md). It separates the safe public demo path from the private local-daemon path and lists the proof commands for each boundary.
+
 ```bash
 npm install
-npm run dev
+npm run dev:demo
 ```
 
 Open `http://127.0.0.1:5173/`.
@@ -35,9 +37,11 @@ npm run build:pages
 npm run validate:pages
 ```
 
-Pushes to `main` deploy the generated `dist-pages/` artifact through the `Public Demo Pages` workflow after the full `npm run check` release gate passes. The Pages build runs in static public-demo mode, so it ships sanitized fixtures without daemon or workspace API probing. The canonical public demo URL is `https://esiem3r.github.io/cognopticon/` after the workflow has deployed.
+Pushes to `main` deploy the generated `dist-pages/` artifact through the `Public Demo Pages` workflow after the full `npm run check` release gate passes. `npm run dev:demo` and the Pages build both run in static public-demo mode, so they ship sanitized fixtures without daemon or workspace API probing. The canonical public demo URL is `https://esiem3r.github.io/cognopticon/` after the workflow has deployed.
 
 ## Run On Your Own Files
+
+Read [Local Runtime](docs/local-runtime.md) before pointing Cognopticon at private project roots.
 
 ```bash
 npm run local:init -- --profile "$(hostname)" --roots "/path/to/projects,/another/root"
@@ -74,6 +78,8 @@ The daemon is not a hidden autonomous agent. It provides a local bridge for:
 Worker agents remain outside the daemon boundary. Mission packets are the handoff format, and unavailable adapters fall back to manual copy instead of pretending to dispatch.
 The mission drawer can copy the full brief or a bounded worker prompt for a second Codex terminal. The worker prompt is generated only from the validated packet fields, and neither path starts an agent or daemon job.
 
+For Codex-as-builder work, Cognopticon also supports a separate process-supervised loop: the supervising Codex session can launch fresh `codex exec` terminal children from a lifecycle packet. Nested subagents are available only when the generated terminal manifest grants that permission. That operator workflow is intentionally outside the browser app and daemon dispatch path.
+
 ## Codex Supervisory Goal
 
 Use `/goal` for the supervising Codex instance as a compact operating objective:
@@ -84,7 +90,21 @@ Act as Cognopticon's supervisory orchestrator: manage research, planning, worker
 
 Detailed standards live in `docs/codex-goal.md`, `docs/lifecycle-harness.md`, generated lifecycle packets, and the personal `cognopticon-lifecycle` skill.
 
-Lifecycle packets include a structured prior-art gate (`research-brief.md`) and a second-terminal handoff (`handoff.md`). The planner is not supposed to lock direction until source links, retrieval dates, license compatibility, maintenance signals, reuse decisions, and rejected options are recorded. `npm run validate:lifecycle` proves the packet contract; `npm run validate:lifecycle -- --packet "<runDir>" --complete-research` proves a filled research brief before plan lock.
+Lifecycle packets include a structured prior-art gate (`research-brief.md`), a process-supervised terminal contract (`terminal-orchestrator.md` and `terminal-agents.json`), and a manual second-terminal fallback (`handoff.md`). The planner is not supposed to lock direction until source links, retrieval dates, license compatibility, maintenance signals, reuse decisions, and rejected options are recorded. `npm run validate:lifecycle` proves the packet contract; `npm run validate:lifecycle -- --packet "<runDir>" --complete-research` proves a filled research brief before plan lock.
+
+Prepare or run fresh Codex terminal children from a packet with:
+
+```bash
+node scripts/codex-terminal-loop.mjs --packet "<runDir>"
+node scripts/codex-terminal-loop.mjs --packet "<runDir>" --launch
+```
+
+The default launch is read-only research/review shaped and does not grant tracked-file write authority. Packets generated with `--research off` record the skip reason and default to review-only launch unless the researcher is explicitly selected. Full verifier and builder children require explicit role selection plus `--allow-write` because their gates can write generated artifacts:
+
+```bash
+node scripts/codex-terminal-loop.mjs --packet "<runDir>" --roles terminal-verifier --allow-write --launch
+node scripts/codex-terminal-loop.mjs --packet "<runDir>" --roles terminal-builder --allow-write --launch
+```
 
 ## Device-Scoped Profiles
 
@@ -137,7 +157,7 @@ The daemon:
 - only opens or runs inside configured roots
 - only runs commands with an explicit daemon safety policy
 - uses `shell: false`
-- limits request and process output size
+- limits request size, retained process output, persisted job-output event text, and event snapshot replay
 - caps queued job runtime
 - logs sessions, jobs, task events, and failures to the active profile event log
 - refuses destructive markers such as git mutation, delete, reset, push, commit, `--force`, and `-rf`
@@ -164,6 +184,7 @@ npm run validate:data
 npm run validate:release
 npm run validate:community
 npm run validate:github -- --repo esiem3r/cognopticon
+npm run validate:private
 npm run validate:package
 npm run validate:payload
 npm run validate:local
@@ -184,6 +205,7 @@ npm run scan
 npm run analyze
 npm run enrich:packets
 npm run lifecycle:packet -- --objective "Finish a bounded Cognopticon slice"
+npm run lifecycle:terminals -- --packet ".cognopticon/profiles/<profile>/loops/<run>" --launch
 npm run release:checkpoint -- --remote
 npm run sanitize:demo
 npm run local:init
@@ -224,6 +246,8 @@ npm run test:e2e
 ```
 
 Maintainers can also run `npm run validate:github -- --repo esiem3r/cognopticon` after publishing to verify hosted repository hardening: administrator-enforced branch protection, required Release Gate status checks, dependency alerts, private vulnerability reporting, CodeQL default setup, GitHub Pages workflow publishing, repository topics, and disabled unmaintained GitHub surfaces.
+
+For the personal local version, run `npm run validate:private` after profile initialization. It proves the active configured roots through scan/analyze without rewriting profile workspace state and writes only a redacted count-level report under `.cognopticon/profiles/<profile>/proofs/`.
 
 ## Security
 

@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { execFileSync } from "node:child_process";
+import { releasePrivacyFindings } from "./release-privacy-rules.mjs";
 import { releaseGateCommands } from "./verification-gates.mjs";
 
 const errors = [];
@@ -19,14 +20,6 @@ const forbiddenTracked = [
   /^workspace-scan\.json$/,
   /^\.env(?:\.|$)/
 ];
-const privatePatterns = [
-  /\/home\/(?!example\b|user\b)[^/"'\s]+/i,
-  /\/mnt\/c\/Users\/[^/"'\s]+/i,
-  /C:\\Users\\[^\\/"'\s]+/i,
-  /\/Users\/(?!example\b|user\b)[^/"'\s]+/i,
-  /sk-[A-Za-z0-9_-]{20,}/,
-  /ghp_[A-Za-z0-9_]{20,}/
-];
 const requiredPublicSurfaces = [
   ".github/workflows/check.yml",
   ".github/workflows/pages.yml",
@@ -43,6 +36,7 @@ const requiredPublicSurfaces = [
   "README.md",
   "SECURITY.md",
   "SUPPORT.md",
+  "docs/getting-started.md",
   "docs/release-checklist.md",
   "src/data/workspace-meta.json",
   "src/data/projects.json",
@@ -82,6 +76,7 @@ if (packageJson.license !== "MIT") errors.push("package.json license must be MIT
 if (packageJson.private !== true) errors.push("package.json must remain private to prevent accidental npm-registry publication");
 if (packageJson.engines?.node !== ">=22") errors.push("package.json engines.node must declare >=22");
 if (packageJson.engines?.npm !== ">=10") errors.push("package.json engines.npm must declare >=10");
+if (packageJson.scripts?.["dev:demo"] !== "vite --host 127.0.0.1 --mode pages") errors.push("package.json dev:demo script must run Vite in static public-demo mode");
 const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
 if (packageLock.packages?.[""]?.license !== packageJson.license) errors.push("package-lock.json root license must match package.json");
 if (packageLock.packages?.[""]?.engines?.node !== packageJson.engines.node) errors.push("package-lock.json root engines.node must match package.json");
@@ -103,8 +98,15 @@ const readmeText = existsSync("README.md") ? readFileSync("README.md", "utf8") :
 for (const required of ["Node.js 22 or newer", "npm 10 or newer", "package.json", "private", "npm-registry publication"]) {
   if (!readmeText.includes(required)) errors.push(`README.md must mention install metadata: ${required}`);
 }
+for (const required of ["docs/getting-started.md", "Public demo", "Local runtime", "npm run dev:demo", "npm run release:checkpoint -- --remote", "npm run check"]) {
+  if (!readmeText.includes(required)) errors.push(`README.md must mention fresh-user onboarding: ${required}`);
+}
+const gettingStartedText = existsSync("docs/getting-started.md") ? readFileSync("docs/getting-started.md", "utf8") : "";
+for (const required of ["Public demo", "Local runtime", "Codex process loop", "npm run dev:demo", "static public-demo mode", "does not probe the local daemon", "terminal-verifier", "terminal-builder", "outside daemon dispatch", "sanitized fixtures", ".cognopticon/profiles/<profile>/", "127.0.0.1", "allowlisted commands", "public/workspace.json", "npm run validate:daemon-config", "SECURITY.md", "SUPPORT.md"]) {
+  if (!gettingStartedText.includes(required)) errors.push(`docs/getting-started.md must mention fresh-user boundary: ${required}`);
+}
 const releaseChecklistText = existsSync("docs/release-checklist.md") ? readFileSync("docs/release-checklist.md", "utf8") : "";
-for (const required of ["Node.js/npm install floor", "package.json", "private", "npm-registry publication"]) {
+for (const required of ["docs/getting-started.md", "Node.js/npm install floor", "package.json", "private", "npm-registry publication"]) {
   if (!releaseChecklistText.includes(required)) errors.push(`docs/release-checklist.md must mention install metadata: ${required}`);
 }
 const workflowText = existsSync(".github/workflows/check.yml") ? readFileSync(".github/workflows/check.yml", "utf8") : "";
@@ -139,8 +141,8 @@ for (const path of releaseScanFiles([...trackedFiles, ...untrackedFiles, ...requ
   if (text.includes(generatedDemoArtifact) && !generatedDemoReferenceAllowlist.has(path)) {
     errors.push(`${path} references generated local artifact ${generatedDemoArtifact}; public runtime must use split fixtures`);
   }
-  for (const pattern of privatePatterns) {
-    if (pattern.test(text)) errors.push(`${path} contains private or secret-looking release hygiene pattern: ${pattern}`);
+  for (const finding of releasePrivacyFindings(text)) {
+    errors.push(`${path} contains private or secret-looking release hygiene pattern: ${finding.label}`);
   }
 }
 

@@ -26,6 +26,8 @@ The mission drawer exposes two manual delivery payloads for validated packets:
 
 Both buttons are disabled for malformed packets. Neither button starts an agent, calls the daemon, or grants edit authority.
 
+Process-supervised Codex mode is separate from this product adapter path. In that operator workflow, the supervising Codex session launches fresh `codex exec` children from `terminal-orchestrator.md` and `terminal-agents.json`, and those child Codex processes may use their own bounded subagents. That does not mean the mission drawer or daemon dispatched an agent.
+
 Generated packets do not grant edit authority. `authority.mayEdit` remains empty until an adapter implements explicit approval handling, `authority.requiresApproval` must include file edits, and runnable verification commands are restricted to Cognopticon's known read-only gate commands.
 
 Good handoff rule: the agent receives a mission, not a vague instruction.

@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { extname } from "node:path";
+import { releasePrivacyFindings } from "./release-privacy-rules.mjs";
 
 const requiredEntries = [
   "CODE_OF_CONDUCT.md",
@@ -8,6 +11,7 @@ const requiredEntries = [
   "README.md",
   "SECURITY.md",
   "SUPPORT.md",
+  "docs/getting-started.md",
   "docs/release-checklist.md",
   "package.json",
   "src/data/workspace-meta.json",
@@ -32,19 +36,14 @@ const forbiddenPatterns = [
   /^workspace-scan\.json$/,
   /\.tgz$/
 ];
-const privatePatterns = [
-  /\/home\/(?!example\b|user\b)[^/"'\s]+/i,
-  /\/mnt\/c\/Users\/[^/"'\s]+/i,
-  /C:\\Users\\[^\\/"'\s]+/i,
-  /\/Users\/(?!example\b|user\b)[^/"'\s]+/i,
-  /sk-[A-Za-z0-9_-]{20,}/,
-  /ghp_[A-Za-z0-9_]{20,}/
-];
+const textExtensions = new Set([".css", ".html", ".js", ".json", ".jsx", ".md", ".mjs", ".ts", ".tsx", ".txt", ".yml", ".yaml"]);
+const textBasenames = new Set([".gitignore", ".npmignore", "LICENSE", "package.json", "tsconfig.json"]);
 
 const errors = [];
 const output = execFileSync("npm", ["pack", "--dry-run", "--json"], { encoding: "utf8" });
 const pack = JSON.parse(output)[0];
 const entries = new Set((pack?.files ?? []).map((file) => file.path));
+let contentScanned = 0;
 
 for (const path of requiredEntries) {
   if (!entries.has(path)) errors.push(`package artifact missing required public entry: ${path}`);
@@ -52,8 +51,19 @@ for (const path of requiredEntries) {
 
 for (const path of entries) {
   if (forbiddenPatterns.some((pattern) => pattern.test(path))) errors.push(`package artifact includes private/generated entry: ${path}`);
-  for (const pattern of privatePatterns) {
-    if (pattern.test(path)) errors.push(`package artifact path contains private-looking pattern: ${path}`);
+  for (const finding of releasePrivacyFindings(path)) {
+    errors.push(`package artifact path contains ${finding.label}: ${path}`);
+  }
+  if (isPublicTextPath(path)) {
+    if (!existsSync(path)) {
+      errors.push(`package artifact text entry is missing from the working tree: ${path}`);
+      continue;
+    }
+    contentScanned += 1;
+    const text = readFileSync(path, "utf8");
+    for (const finding of releasePrivacyFindings(text)) {
+      errors.push(`package artifact content contains ${finding.label}: ${path}`);
+    }
   }
 }
 
@@ -63,4 +73,9 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log(`Cognopticon package artifact valid: ${entries.size} entries, ${pack.size} bytes.`);
+console.log(`Cognopticon package artifact valid: ${entries.size} entries, ${pack.size} bytes, ${contentScanned} text entries scanned.`);
+
+function isPublicTextPath(path) {
+  if (textBasenames.has(path)) return true;
+  return textExtensions.has(extname(path));
+}

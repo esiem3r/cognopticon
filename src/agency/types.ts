@@ -72,10 +72,31 @@ export interface AgentRun {
   error?: string;
 }
 
+export type DaemonRuntimeMode = "local_daemon" | "public_demo" | "offline";
+export type DaemonHealthJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "timed_out";
+export type DaemonHealthJobSummary = Record<DaemonHealthJobStatus, number>;
+
+export interface DaemonHealthProfile {
+  id?: string;
+  label?: string;
+  deviceId?: string;
+}
+
+export interface DaemonHealthOrchestratorSummary {
+  sessions?: number;
+  taskEvents?: number;
+  latestSessionId?: string;
+}
+
 export interface DaemonStatus {
   online: boolean;
   url: string;
   checkedAt: string;
+  runtimeMode?: DaemonRuntimeMode;
+  profile?: DaemonHealthProfile;
+  allowedRootCount?: number;
+  jobs?: DaemonHealthJobSummary;
+  orchestrator?: DaemonHealthOrchestratorSummary;
   error?: string;
 }
 

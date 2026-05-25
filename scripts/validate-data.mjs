@@ -3,6 +3,7 @@ import metadata from "../src/data/workspace-meta.json" with { type: "json" };
 import projects from "../src/data/projects.json" with { type: "json" };
 import relationships from "../src/data/relationships.json" with { type: "json" };
 import roots from "../src/data/workspace-roots.json" with { type: "json" };
+import { releasePrivacyFindings } from "./release-privacy-rules.mjs";
 
 const allowedStatuses = new Set(["active", "forming", "legacy", "paused", "archive"]);
 const allowedHealth = new Set(["strong", "promising", "fragile", "stalled", "unknown"]);
@@ -54,9 +55,8 @@ function requireDate(record, field, label) {
 
 function validatePublicDemo(workspace) {
   const text = JSON.stringify(workspace);
-  const privatePatterns = [/\/home\/[^/"']+/i, /\/mnt\/c\/Users\/[^/"']+/i, /C:\\Users\\[^\\/"']+/i, /\/Users\/[^/"']+/i];
-  for (const pattern of privatePatterns) {
-    if (pattern.test(text)) errors.push(`demo workspace contains private path pattern: ${pattern}`);
+  for (const finding of releasePrivacyFindings(text)) {
+    errors.push(`demo workspace contains private or secret-looking pattern: ${finding.label}`);
   }
   requireDate(workspace, "generatedAt", "demo.workspace");
   requireString(workspace, "title", "demo.workspace");
