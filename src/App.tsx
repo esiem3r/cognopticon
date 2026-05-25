@@ -4,6 +4,8 @@ import { runAgencyTick } from "./agency/agencyKernel";
 import type { DaemonStatus } from "./agency/types";
 import { CognitionRail } from "./components/cognition/CognitionRail";
 import { MissionDrawer } from "./components/MissionDrawer";
+import { RunHistoryDrawer } from "./components/RunHistoryDrawer";
+import { RuntimeHealthDrawer } from "./components/RuntimeHealthDrawer";
 import { UniverseCanvas, type GraphCommand, type ProjectLabel } from "./components/UniverseCanvas";
 import { compileMissionForProposal } from "./intelligence/missionCompiler";
 import type { CognopticonEvent, InterventionProposal } from "./intelligence/types";
@@ -13,7 +15,7 @@ import { adaptProjectDossiers } from "./model/adaptProjectDossier";
 import { DetailTray } from "./overlays/DetailTray";
 import { NodeCockpit } from "./overlays/NodeCockpit";
 import { NodeOverlayLayer } from "./overlays/NodeOverlayLayer";
-import { checkDaemonHealth, createDaemonJob, getDaemonJob, getOrchestratorState, recordOrchestratorTaskEvent, startOrchestratorSession, subscribeDaemonEvents, type OrchestratorTaskEvent } from "./services/daemonClient";
+import { checkDaemonHealth, createDaemonJob, getDaemonJob, getDaemonRunState, getOrchestratorState, recordOrchestratorTaskEvent, startOrchestratorSession, subscribeDaemonEvents, type DaemonRunJob, type OrchestratorTaskEvent } from "./services/daemonClient";
 import type { CognopticonWorkspace, MissionBrief, ProjectDomain, ProjectDossier, ProjectStatus, RunRecord } from "./types/cognopticon";
 
 const projectTypeFilters = [
@@ -26,8 +28,23 @@ const projectTypeFilters = [
 ] as const;
 
 const initialDaemonStatus: DaemonStatus = __COGNOPTICON_PUBLIC_DEMO__
-  ? { online: false, url: "public-static-demo", checkedAt: new Date().toISOString(), error: "disabled in public static demo" }
-  : { online: false, url: "http://127.0.0.1:8787", checkedAt: new Date().toISOString(), error: "not checked" };
+  ? {
+    online: false,
+    url: "public-static-demo",
+    checkedAt: new Date().toISOString(),
+    runtimeMode: "public_demo",
+    allowedRootCount: 0,
+    jobs: { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0, timed_out: 0 },
+    orchestrator: { sessions: 0, taskEvents: 0 },
+    error: "disabled in public static demo"
+  }
+  : { online: false, url: "http://127.0.0.1:8787", checkedAt: new Date().toISOString(), runtimeMode: "offline", error: "not checked" };
+
+const DAEMON_JOB_POLL_INTERVAL_MS = 500;
+const DAEMON_JOB_DEFAULT_RUNTIME_MS = 900_000;
+const DAEMON_JOB_MIN_POLL_MS = 30_000;
+const DAEMON_JOB_POLL_GRACE_MS = 5_000;
+const daemonJobTerminalStatuses = ["completed", "failed", "cancelled", "timed_out"] as const;
 
 export default function App() {
   const [workspace, setWorkspace] = useState<CognopticonWorkspace>(sampleWorkspace);
@@ -47,14 +64,18 @@ export default function App() {
   const [graphCommand, setGraphCommand] = useState<GraphCommand | null>(null);
   const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>(initialDaemonStatus);
   const [orchestratorActive, setOrchestratorActive] = useState(false);
-  const [orchestratorMessage, setOrchestratorMessage] = useState("Agent work is only exposed through the orchestrator. Worker/sub-agent machinery stays behind this boundary.");
+  const [orchestratorMessage, setOrchestratorMessage] = useState("Cognopticon prepares mission handoffs and records approved local events. Worker agents require explicit terminal handoff outside the browser and daemon.");
   const [orchestratorSessionId, setOrchestratorSessionId] = useState<string | undefined>();
   const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
   const [taskSyncState, setTaskSyncState] = useState<Record<string, "local" | "syncing" | "synced" | "error">>({});
   const [verificationState, setVerificationState] = useState<Record<string, { status: "idle" | "running" | "passed" | "failed"; summary: string }>>({});
   const [runtimeEvents, setRuntimeEvents] = useState<CognopticonEvent[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [runJobs, setRunJobs] = useState<DaemonRunJob[]>([]);
   const [runsLoadedKey, setRunsLoadedKey] = useState("");
+  const [runHistoryOpen, setRunHistoryOpen] = useState(false);
+  const [runtimeHealthOpen, setRuntimeHealthOpen] = useState(false);
+  const [selectedRunId, setSelectedRunId] = useState<string | undefined>();
   const [brief, setBrief] = useState<MissionBrief | null>(null);
 
   useEffect(() => {
@@ -95,8 +116,15 @@ export default function App() {
       setCompletedTasks(ledger.completedTasks);
       setTaskSyncState(ledger.syncState);
       if (!state.active) return;
+      const restoredSessionId = state.latestSessionId ?? state.session?.sessionId;
+      if (!restoredSessionId) {
+        setOrchestratorActive(false);
+        setOrchestratorSessionId(undefined);
+        setOrchestratorMessage("Daemon reported orchestrator history without an active session id. Task checks stay local until you start a new orchestrator session.");
+        return;
+      }
       setOrchestratorActive(true);
-      setOrchestratorSessionId(state.latestSessionId ?? state.session?.sessionId);
+      setOrchestratorSessionId(restoredSessionId);
       setOrchestratorMessage(`Daemon restored the orchestrator session with ${state.taskEvents.length} recorded task event${state.taskEvents.length === 1 ? "" : "s"}.`);
     });
     return () => {
@@ -141,6 +169,19 @@ export default function App() {
     if (runsLoadedKey !== runStorageKey) return;
     window.localStorage.setItem(runStorageKey, JSON.stringify(runs.slice(0, 20)));
   }, [runStorageKey, runs, runsLoadedKey]);
+
+  useEffect(() => {
+    if (!daemonStatus.online || runsLoadedKey !== runStorageKey) return;
+    let alive = true;
+    getDaemonRunState(daemonStatus.url).then((state) => {
+      if (!alive || !state.ok) return;
+      setRuns((current) => mergeRunRecords(current, state.runs));
+      setRunJobs(state.jobs);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [daemonStatus.online, daemonStatus.url, runStorageKey, runsLoadedKey]);
 
   const filteredProjects = useMemo(() => {
     return projectDossiers.filter((project) => {
@@ -211,7 +252,6 @@ export default function App() {
   }
 
   async function activateOrchestrator() {
-    setOrchestratorActive(true);
     setQueueOpen(true);
     setDetailOpen(false);
     setFocusMode("all");
@@ -221,19 +261,27 @@ export default function App() {
     });
 
     if (!daemonStatus.online) {
-      setOrchestratorMessage("Visualizer is armed locally. Daemon is offline, so the orchestrator can prepare/focus missions but cannot dispatch local jobs.");
+      setOrchestratorActive(true);
+      setOrchestratorSessionId(undefined);
+      setOrchestratorMessage("Visualizer is armed locally. Daemon is offline, so the orchestrator can prepare and focus missions but cannot dispatch local jobs or worker agents.");
       return;
     }
 
+    setOrchestratorActive(false);
+    setOrchestratorSessionId(undefined);
+    setOrchestratorMessage("Requesting an orchestrator session from the local daemon.");
     const result = await startOrchestratorSession({
       focusProjectId: selectedProject.id,
       visualizerUrl: window.location.href
     }, daemonStatus.url);
-    if (result.ok) {
+    if (result.ok && result.sessionId) {
+      setOrchestratorActive(true);
       setOrchestratorSessionId(result.sessionId);
-      setOrchestratorMessage("Daemon acknowledged the orchestrator session. Task checks now write orchestrator events while the visualizer follows the selected project.");
+      setOrchestratorMessage("Daemon acknowledged the user-facing orchestrator session. Task checks now write local daemon events while worker agents remain explicit terminal handoffs.");
     } else {
-      setOrchestratorMessage(result.message);
+      setOrchestratorActive(false);
+      setOrchestratorSessionId(undefined);
+      setOrchestratorMessage(`Daemon could not start an orchestrator session. Task checks remain local. ${result.message}`);
     }
   }
 
@@ -273,6 +321,13 @@ export default function App() {
       return;
     }
 
+    if (!orchestratorSessionId) {
+      setTaskSyncState((value) => ({ ...value, [task.id]: "local" }));
+      setOrchestratorActive(false);
+      setOrchestratorMessage("Task marked locally. No daemon orchestrator session is armed; start the orchestrator again to record daemon task events.");
+      return;
+    }
+
     setTaskSyncState((value) => ({ ...value, [task.id]: "syncing" }));
     const result = await recordOrchestratorTaskEvent({
       sessionId: orchestratorSessionId,
@@ -281,6 +336,13 @@ export default function App() {
       label: task.label,
       completed
     }, daemonStatus.url);
+    if (!result.ok && isStaleOrchestratorSessionMessage(result.message)) {
+      setOrchestratorActive(false);
+      setOrchestratorSessionId(undefined);
+      setTaskSyncState((value) => ({ ...value, [task.id]: "local" }));
+      setOrchestratorMessage(`${project.name}: task marked locally because the daemon orchestrator session expired. Start the orchestrator again to resume event logging.`);
+      return;
+    }
     setTaskSyncState((value) => ({ ...value, [task.id]: result.ok ? "synced" : "error" }));
     setOrchestratorMessage(result.ok
       ? `${project.name}: ${result.message}`
@@ -311,11 +373,13 @@ export default function App() {
     setVerificationState((value) => ({
       ...value,
       [project.id]: {
-        status: result.status === "completed" ? "passed" : "failed",
+        status: result.status === "completed" ? "passed" : result.status === "running" ? "running" : "failed",
         summary: result.summary
       }
     }));
-    setOrchestratorMessage(`${project.name}: verification ${result.status === "completed" ? "passed" : "failed"} via daemon job.`);
+    setOrchestratorMessage(result.status === "running"
+      ? `${project.name}: verification is still running via daemon job.`
+      : `${project.name}: verification ${result.status === "completed" ? "passed" : "failed"} via daemon job.`);
   }
 
   async function markMissionReviewed() {
@@ -361,6 +425,11 @@ export default function App() {
     setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)].slice(0, 20));
   }
 
+  function openRunHistory(runId?: string) {
+    setSelectedRunId(runId ?? runs[0]?.id);
+    setRunHistoryOpen(true);
+  }
+
   async function dispatchDaemonRun({
     runId,
     projectId,
@@ -377,28 +446,36 @@ export default function App() {
     const commandText = `${command.command} ${command.args.join(" ")}`.trim();
     const cwd = command.cwd ?? projectDossiers.find((project) => project.id === projectId)?.path ?? selectedProject.path;
     upsertRun({ id: runId, projectId, title, status: "dispatched", summary: `Dispatching ${commandText}`, command: commandText, createdAt, updatedAt: new Date().toISOString() });
-    const queued = await createDaemonJob({ cwd, command: command.command, args: command.args }, daemonStatus.url);
+    const queued = await createDaemonJob({ runId, projectId, title, cwd, command: command.command, args: command.args }, daemonStatus.url);
     if (!queued.ok || !queued.jobId) {
       const failed = { status: "failed" as const, summary: queued.message };
       upsertRun({ id: runId, projectId, title, ...failed, command: commandText, createdAt, updatedAt: new Date().toISOString() });
       return failed;
     }
     upsertRun({ id: runId, projectId, title, status: "running", summary: `Daemon job ${queued.jobId} running: ${commandText}`, command: commandText, jobId: queued.jobId, createdAt, updatedAt: new Date().toISOString() });
-    const finalJob = await waitForDaemonJob(queued.jobId);
-    const status = finalJob?.status === "completed" ? "completed" as const : "failed" as const;
-    const summary = finalJob
-      ? `${finalJob.command} exited ${finalJob.exitCode ?? "unknown"}${finalJob.stderr ? `: ${finalJob.stderr.slice(0, 180)}` : ""}`
-      : `Daemon job ${queued.jobId} did not reach a terminal state.`;
+    const finalJob = await waitForDaemonJob(queued.jobId, queued.job?.timeoutMs);
+    if (!finalJob) {
+      const pending = {
+        status: "running" as const,
+        summary: `Daemon job ${queued.jobId} is still running; it remains available in run history.`
+      };
+      upsertRun({ id: runId, projectId, title, ...pending, command: commandText, jobId: queued.jobId, createdAt, updatedAt: new Date().toISOString() });
+      return pending;
+    }
+    const status = finalJob.status === "completed" ? "completed" as const : "failed" as const;
+    const summary = `${finalJob.command} exited ${finalJob.exitCode ?? "unknown"}`;
     upsertRun({ id: runId, projectId, title, status, summary, command: commandText, jobId: queued.jobId, createdAt, updatedAt: new Date().toISOString() });
     return { status, summary };
   }
 
-  async function waitForDaemonJob(jobId: string) {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+  async function waitForDaemonJob(jobId: string, timeoutMs = DAEMON_JOB_DEFAULT_RUNTIME_MS) {
+    const runtimeMs = Number.isFinite(timeoutMs) ? Math.max(timeoutMs, DAEMON_JOB_MIN_POLL_MS) : DAEMON_JOB_DEFAULT_RUNTIME_MS;
+    const deadline = Date.now() + runtimeMs + DAEMON_JOB_POLL_GRACE_MS;
+    while (Date.now() <= deadline) {
       const result = await getDaemonJob(jobId, daemonStatus.url);
       const job = result.job;
-      if (job && ["completed", "failed", "cancelled", "timed_out"].includes(job.status)) return job;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (job && daemonJobTerminalStatuses.includes(job.status as (typeof daemonJobTerminalStatuses)[number])) return job;
+      await new Promise((resolve) => setTimeout(resolve, DAEMON_JOB_POLL_INTERVAL_MS));
     }
     return undefined;
   }
@@ -661,6 +738,9 @@ export default function App() {
           onFocus={setSelectedId}
           onMission={createProposalBrief}
           onStartOrchestrator={activateOrchestrator}
+          onOpenRunHistory={() => openRunHistory()}
+          onOpenRuntimeHealth={() => setRuntimeHealthOpen(true)}
+          onInspectRun={(runId) => openRunHistory(runId)}
         />
       </section>
 
@@ -680,6 +760,19 @@ export default function App() {
         dispatchSummary={brief ? runs.find((run) => run.id === missionRunId(brief))?.summary : undefined}
         onMarkReviewed={() => void markMissionReviewed()}
         onClose={() => setBrief(null)}
+      />
+      <RunHistoryDrawer
+        open={runHistoryOpen}
+        runs={runs}
+        jobs={runJobs}
+        selectedRunId={selectedRunId}
+        onSelectRun={setSelectedRunId}
+        onClose={() => setRunHistoryOpen(false)}
+      />
+      <RuntimeHealthDrawer
+        open={runtimeHealthOpen}
+        daemonStatus={daemonStatus}
+        onClose={() => setRuntimeHealthOpen(false)}
       />
     </main>
   );
@@ -709,6 +802,10 @@ function taskLedgerFromState(completedTaskIds: string[], events: OrchestratorTas
     syncState[event.taskId] = "synced";
   }
   return { completedTasks, syncState };
+}
+
+function isStaleOrchestratorSessionMessage(message: string) {
+  return message.startsWith("Unknown orchestrator session:");
 }
 
 function verificationCommandFor(project: ProjectDossier) {
@@ -746,6 +843,17 @@ function loadStoredRuns(storageKey: string): RunRecord[] {
   } catch {
     return [];
   }
+}
+
+function mergeRunRecords(localRuns: RunRecord[], daemonRuns: RunRecord[]) {
+  const byId = new Map<string, RunRecord>();
+  for (const run of localRuns) byId.set(run.id, run);
+  for (const run of daemonRuns) byId.set(run.id, run);
+  return [...byId.values()].sort(compareRunRecords).slice(0, 20);
+}
+
+function compareRunRecords(left: RunRecord, right: RunRecord) {
+  return right.updatedAt.localeCompare(left.updatedAt);
 }
 
 function safeStorageSegment(value: string) {

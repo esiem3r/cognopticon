@@ -36,9 +36,18 @@ describe("Cognopticon data validation", () => {
   });
 
   it("rejects private paths in public demo data", () => {
-    const demoProject = { ...projects[0], path: "/home/example/private-project" };
+    const demoProject = { ...projects[0], path: ["/home/", "alice", "/private-project"].join("") };
     const errors = validatePublicDemoWorkspace([demoProject], ["/demo/workspace"]);
-    expect(errors.some((error) => error.includes("private local path"))).toBe(true);
+    expect(errors.some((error) => error.includes("private Linux home path"))).toBe(true);
+  });
+
+  it("rejects secret-looking strings in public demo data", () => {
+    const demoProject = {
+      ...projects[0],
+      missionConstraints: [...projects[0].missionConstraints, ["Authorization: Bearer ", "c".repeat(24)].join("")]
+    };
+    const errors = validatePublicDemoWorkspace([demoProject], ["/demo/workspace"]);
+    expect(errors.some((error) => error.includes("HTTP bearer authorization header"))).toBe(true);
   });
 
   it("accepts sanitized demo paths", () => {

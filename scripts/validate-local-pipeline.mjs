@@ -12,7 +12,8 @@ const profileId = "first-run";
 const workflowScriptCommands = {
   "local:init": "node scripts/local-init.mjs",
   scan: "node scripts/scan-workspace.mjs --profile-output",
-  analyze: "node scripts/analyze-workspace.mjs"
+  analyze: "node scripts/analyze-workspace.mjs",
+  "enrich:packets": "node scripts/enrichment-packets.mjs"
 };
 const workflowScripts = Object.keys(workflowScriptCommands);
 const repoPrivateStatePath = join(repoRoot, ".cognopticon");
@@ -36,13 +37,23 @@ try {
   runNpmScript("local:init", ["--", "--profile", profileId, "--roots", [toolsRoot, researchRoot, templateRoot].join(",")]);
   runNpmScript("scan");
   runNpmScript("analyze");
+  runNpmScript("enrich:packets");
 
   const config = readJson(join(tempRoot, ".cognopticon", "config.json"));
   const raw = readJson(join(tempRoot, ".cognopticon", "profiles", profileId, "state", "workspace.raw.json"));
   const workspace = readJson(join(tempRoot, ".cognopticon", "profiles", profileId, "state", "workspace.json"));
   const review = readJson(join(tempRoot, ".cognopticon", "profiles", profileId, "state", "scan-review.json"));
+  const missionDir = join(tempRoot, ".cognopticon", "profiles", profileId, "missions");
+  const enrichmentDir = join(tempRoot, ".cognopticon", "profiles", profileId, "enrichments");
+  const missionFiles = readdirSync(missionDir).filter((file) => file.endsWith(".md"));
   const tempPackage = readJson(join(tempRoot, "package.json"));
-  const serializedArtifacts = JSON.stringify({ config, raw, workspace, review });
+  const serializedArtifacts = JSON.stringify({
+    config,
+    raw,
+    workspace,
+    review,
+    missionPackets: missionFiles.map((file) => readFileSync(join(missionDir, file), "utf8"))
+  });
 
   for (const script of workflowScripts) {
     assert(tempPackage.scripts?.[script] === workflowScriptCommands[script], `temp validation package should clone package.json script: ${script}`);
@@ -70,9 +81,12 @@ try {
     "analysis should connect the local tool project to another project"
   );
   assert(workspace.analysis?.source === "generated", "first-run analysis should declare generated local evidence");
+  assert(missionFiles.length === workspace.projects.length, "enrichment packet generation should create one private mission packet per active project");
+  assert(missionFiles.every((file) => readFileSync(join(missionDir, file), "utf8").includes(enrichmentDir)), "enrichment packets should target profile-scoped enrichment files");
+  assert(!existsSync(join(tempRoot, "missions")), "enrichment packets should not write to the legacy top-level missions directory");
   assert(!serializedArtifacts.includes(repoRoot), "generated local validation artifacts should not contain the real repository root");
 
-  console.log(`Cognopticon local pipeline valid through npm scripts: profile ${profileId}, ${workspace.projects.length} projects, ${workspace.relationships.length} relationships.`);
+  console.log(`Cognopticon local pipeline valid through npm scripts: profile ${profileId}, ${workspace.projects.length} projects, ${workspace.relationships.length} relationships, ${missionFiles.length} enrichment packets.`);
 } finally {
   if (!process.env.COGNOPTICON_KEEP_LOCAL_VALIDATION) rmSync(tempRoot, { recursive: true, force: true });
 }
@@ -89,7 +103,7 @@ function setupValidationPackage() {
   }
   mkdirSync(join(tempRoot, "scripts"), { recursive: true });
   mkdirSync(join(tempRoot, "src", "data"), { recursive: true });
-  for (const scriptFile of ["local-init.mjs", "runtime-config.mjs", "scan-workspace.mjs", "analyze-workspace.mjs"]) {
+  for (const scriptFile of ["local-init.mjs", "runtime-config.mjs", "scan-workspace.mjs", "analyze-workspace.mjs", "enrichment-packets.mjs"]) {
     cpSync(join(repoRoot, "scripts", scriptFile), join(tempRoot, "scripts", scriptFile));
   }
   cpSync(join(repoRoot, "src", "data", "workspace-roots.json"), join(tempRoot, "src", "data", "workspace-roots.json"));

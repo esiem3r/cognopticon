@@ -1,4 +1,5 @@
 import type { ProjectDossier, ProjectRelationship } from "../types/cognopticon";
+import privacyPatternSpecs from "./privacy-patterns.json";
 
 const statuses = new Set(["active", "forming", "legacy", "paused", "archive"]);
 const health = new Set(["strong", "promising", "fragile", "stalled", "unknown"]);
@@ -61,18 +62,16 @@ export function validateCognopticonData(projects: ProjectDossier[], relationship
 export function validatePublicDemoWorkspace(projects: ProjectDossier[], roots: string[]) {
   const errors: string[] = [];
   const text = JSON.stringify({ roots, projects });
-  const privatePathPatterns = [
-    /\/home\/[^/"']+/i,
-    /\/mnt\/c\/Users\/[^/"']+/i,
-    /C:\\Users\\[^\\/"']+/i,
-    /\/Users\/[^/"']+/i
-  ];
-  for (const pattern of privatePathPatterns) {
-    if (pattern.test(text)) errors.push(`demo workspace contains private local path pattern: ${pattern}`);
+  for (const finding of privacyFindings(text)) {
+    errors.push(`demo workspace contains private or secret-looking pattern: ${finding.label}`);
   }
   if (!roots.every((root) => root.startsWith("/demo/"))) errors.push("demo workspace roots must use /demo paths only");
   if (!projects.every((project) => project.path.startsWith("/demo/"))) errors.push("demo project paths must use /demo paths only");
   return errors;
+}
+
+function privacyFindings(text: string) {
+  return privacyPatternSpecs.filter(({ source, flags }) => new RegExp(source, flags).test(text));
 }
 
 function requireText(value: unknown, label: string, errors: string[]) {

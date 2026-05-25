@@ -1,6 +1,6 @@
 import type { DaemonStatus } from "../agency/types";
 import type { CognopticonEvent } from "../intelligence/types";
-import type { DaemonActionResult, DaemonJobResult, OrchestratorSessionResult, OrchestratorStateResult, OrchestratorTaskEventResult } from "./daemonClient";
+import type { DaemonActionResult, DaemonJobResult, DaemonRunStateResult, OrchestratorSessionResult, OrchestratorStateResult, OrchestratorTaskEventResult } from "./daemonClient";
 
 const PUBLIC_DEMO_URL = "public-static-demo";
 
@@ -18,6 +18,15 @@ export async function createDaemonJob(): Promise<DaemonJobResult> {
 
 export async function getDaemonJob(jobId: string): Promise<DaemonJobResult> {
   return { ok: false, jobId, message: "Local runtime actions are disabled in the public static demo." };
+}
+
+export async function getDaemonRunState(): Promise<DaemonRunStateResult> {
+  return {
+    ok: false,
+    runs: [],
+    jobs: [],
+    message: "Local runtime actions are disabled in the public static demo."
+  };
 }
 
 export async function openDaemonPath(): Promise<DaemonActionResult> {
@@ -86,6 +95,10 @@ function publicDemoStatus(baseUrl?: string): DaemonStatus {
     online: false,
     url: baseUrl ?? PUBLIC_DEMO_URL,
     checkedAt: new Date().toISOString(),
+    runtimeMode: "public_demo",
+    allowedRootCount: 0,
+    jobs: { queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0, timed_out: 0 },
+    orchestrator: { sessions: 0, taskEvents: 0 },
     error: "disabled in public static demo"
   };
 }

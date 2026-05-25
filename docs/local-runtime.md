@@ -1,5 +1,7 @@
 # Local Runtime
 
+For a first checkout, start with `docs/getting-started.md`; this page is the deeper reference for the private local-daemon path.
+
 `npm run local` builds the app and starts `daemon/src/index.js` on `127.0.0.1:8787`.
 
 Initialize private config:
@@ -45,11 +47,15 @@ During development, prefer `npm run local` for daemon-backed flows. If a Vite de
 
 `npm run validate:local` proves the documented first-run command sequence through the known npm entrypoints in an isolated temporary app root: `npm run local:init`, `npm run scan`, then `npm run analyze`. The gate strips ambient profile and Node/npm preload/config state from the child workflow runs, confirms the npm aliases still point at the expected local Node scripts, confirms all generated profile state stays under the temp root, rejects unmodeled npm lifecycle hook drift, and checks that the real repository `.cognopticon/` tree was not modified.
 
+`npm run enrich:packets` writes private agent-enrichment mission packets for the active analyzed workspace under `.cognopticon/profiles/<profile>/missions/`. Those packets include private project names and paths by design, so the generator refuses `--output` and `--enrichments` destinations outside the active profile tree.
+
+`npm run validate:private` is the opt-in proof for the personal local version. It requires an initialized `.cognopticon/config.json`, scans and analyzes the active profile's configured roots into temporary files, confirms the real profile workspace/config/review/event state was not rewritten, and writes only a count-level redacted report under `.cognopticon/profiles/<profile>/proofs/private-profile-proof.json`. Use `COGNOPTICON_PROFILE=<profile>` or `-- --profile <profile>` to prove a non-active profile. Use `-- --roots "/path/to/root"` for a one-off proof without changing the saved profile roots. Use `-- --report ".cognopticon/profiles/<profile>/proofs/name.json"` to choose a report filename inside the private proof directory. Use `-- --no-report` when you want the proof without a local report artifact.
+
 Capabilities:
 
 - health check
 - workspace load
-- event stream snapshot over server-sent events
+- bounded event stream snapshot over server-sent events
 - open path inside allowed roots
 - open editor inside allowed roots
 - run allowlisted command with `shell: false`

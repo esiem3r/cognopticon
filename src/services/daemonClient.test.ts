@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { __resetDaemonTokenForTests, __setDaemonEventReconnectDelayForTests, checkDaemonHealth, daemonToken, getOrchestratorState, isDaemonRequestBoundaryFailure, normalizeDaemonEvent, sanitizeDaemonErrorMessage, subscribeDaemonEvents } from "./daemonClient";
+import { __resetDaemonTokenForTests, __setDaemonEventReconnectDelayForTests, checkDaemonHealth, createDaemonJob, daemonToken, getDaemonJob, getDaemonRunState, getOrchestratorState, isDaemonRequestBoundaryFailure, normalizeDaemonEvent, openDaemonPath, recordOrchestratorTaskEvent, runDaemonCommand, sanitizeDaemonErrorMessage, startOrchestratorSession, subscribeDaemonEvents } from "./daemonClient";
 
 afterEach(() => {
   __resetDaemonTokenForTests();
@@ -73,17 +73,68 @@ describe("daemon event normalization", () => {
     expect(sanitizeDaemonErrorMessage("failed at C:\\Users\\User\\secret.txt")).toBe("failed at [redacted path]");
   });
 
-  it("normalizes redacted job events without depending on raw local paths", () => {
+  it("sanitizes direct daemon action responses before app state", async () => {
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/"),
+      sessionStorage: memoryStorage({ "cognopticon:daemonToken": "action-secret" }),
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/actions/open-path")) {
+        return new Response(JSON.stringify({
+          ok: true,
+          actionId: "open-path",
+          eventId: "daemon:open",
+          message: "Opened /home/user/private/project/secret.txt"
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        actionId: "run-command",
+        eventId: "daemon:run",
+        message: "ran npm in /home/user/private/project",
+        stdout: "ok /home/user/private/project/stdout.txt",
+        stderr: "warn C:\\Users\\User\\secret.txt"
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const opened = await openDaemonPath({ path: "/home/user/private/project/secret.txt" }, "http://127.0.0.1:8787");
+    const command = await runDaemonCommand({ cwd: "/home/user/private/project", command: "npm", args: ["test"] }, "http://127.0.0.1:8787");
+
+    expect(opened).toMatchObject({
+      ok: true,
+      actionId: "open-path",
+      eventId: "daemon:open",
+      message: "Opened [redacted path]"
+    });
+    expect(command).toMatchObject({
+      ok: true,
+      actionId: "run-command",
+      eventId: "daemon:run",
+      message: "ran npm in [redacted path]",
+      stdout: "ok [redacted path]",
+      stderr: "warn [redacted path]"
+    });
+    expect(JSON.stringify({ opened, command })).not.toContain("/home/user");
+    expect(JSON.stringify({ opened, command })).not.toContain("C:\\Users");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/api/actions/open-path", expect.objectContaining({
+      headers: expect.objectContaining({ "X-Cognopticon-Token": "action-secret" })
+    }));
+  });
+
+  it("redacts raw local paths in job events before they enter app state", () => {
     const outputEvent = normalizeDaemonEvent({
       id: "daemon:output",
       type: "job_output",
-      payload: { jobId: "job:1", stream: "stdout", text: "daemon-proof-ok [redacted path]", truncated: false },
+      payload: { jobId: "job:1", stream: "stdout", text: "daemon-proof-ok /home/user/private/proof.txt", truncated: false },
       createdAt: "2026-05-23T12:00:00.000Z"
     });
     const finishedEvent = normalizeDaemonEvent({
       id: "daemon:finished",
       type: "job_finished",
-      payload: { id: "job:1", command: "node", args: ["proof.mjs"], status: "completed", ok: true },
+      payload: { id: "job:1", command: "node", args: ["/home/user/private/proof.mjs"], status: "completed", ok: true },
       createdAt: "2026-05-23T12:00:01.000Z"
     });
 
@@ -96,8 +147,9 @@ describe("daemon event normalization", () => {
     expect(finishedEvent).toMatchObject({
       id: "daemon:finished",
       type: "job_finished",
-      payload: { id: "job:1", command: "node", status: "completed" }
+      payload: { id: "job:1", command: "node", args: ["[redacted path]"], status: "completed" }
     });
+    expect(JSON.stringify(finishedEvent)).not.toContain("/home/user");
   });
 
   it("bootstraps daemon tokens into session storage and strips visible URLs", async () => {
@@ -174,6 +226,46 @@ describe("daemon event normalization", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:45678/api/health", expect.objectContaining({
       headers: { "X-Cognopticon-Token": "origin-secret" }
     }));
+  });
+
+  it("keeps daemon health metadata sanitized before UI state", async () => {
+    vi.stubGlobal("document", { title: "Cognopticon" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/"),
+      sessionStorage: memoryStorage(),
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      daemon: "cognopticon",
+      runtimeMode: "local_daemon",
+      profile: {
+        id: "laptop",
+        label: "Laptop /home/user/private",
+        deviceId: "rig-01",
+        stateDir: "/home/user/.cognopticon/state"
+      },
+      allowedRoots: ["/home/user/private"],
+      allowedRootCount: 1,
+      jobs: { queued: 1, running: 2, completed: 3, failed: 4, cancelled: 5, timed_out: 6 },
+      orchestrator: { sessions: 1, taskEvents: 2, latestSessionId: "session:1" }
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await checkDaemonHealth("http://127.0.0.1:8787");
+
+    expect(status).toMatchObject({
+      online: true,
+      runtimeMode: "local_daemon",
+      profile: { id: "laptop", label: "Laptop [redacted path]", deviceId: "rig-01" },
+      allowedRootCount: 1,
+      jobs: { queued: 1, running: 2, completed: 3, failed: 4, cancelled: 5, timed_out: 6 },
+      orchestrator: { sessions: 1, taskEvents: 2, latestSessionId: "session:1" }
+    });
+    expect(JSON.stringify(status)).not.toContain("/home/user");
+    expect(JSON.stringify(status)).not.toContain("allowedRoots");
+    expect(JSON.stringify(status)).not.toContain("stateDir");
   });
 
   it("does not treat a dev-server HTML fallback as daemon health", async () => {
@@ -258,6 +350,232 @@ describe("daemon event normalization", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/api/orchestrator/state", expect.objectContaining({
       headers: { "X-Cognopticon-Token": "state-secret" }
     }));
+  });
+
+  it("preserves sanitized daemon rejection bodies for orchestrator session flows", async () => {
+    const sessionStorage = memoryStorage({ "cognopticon:daemonToken": "orchestrator-secret" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/"),
+      sessionStorage,
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/orchestrator/session")) {
+        return new Response(JSON.stringify({ error: "Path is outside configured Cognopticon roots: /home/user/private/project" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return new Response(JSON.stringify({ error: "Unknown orchestrator session: orchestrator:stale" }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const session = await startOrchestratorSession({ focusProjectId: "launchable-tool", visualizerUrl: "http://127.0.0.1:5173/" }, "http://127.0.0.1:8787");
+    const taskEvent = await recordOrchestratorTaskEvent({
+      sessionId: "orchestrator:stale",
+      taskId: "launchable-tool:inspect",
+      projectId: "launchable-tool",
+      label: "Inspect current state",
+      completed: true
+    }, "http://127.0.0.1:8787");
+
+    expect(session).toMatchObject({
+      ok: false,
+      message: "Path is outside configured Cognopticon roots."
+    });
+    expect(taskEvent).toMatchObject({
+      ok: false,
+      message: "Unknown orchestrator session: orchestrator:stale"
+    });
+    expect(JSON.stringify(session)).not.toContain("/home/user");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/api/orchestrator/session", expect.objectContaining({
+      headers: expect.objectContaining({ "X-Cognopticon-Token": "orchestrator-secret" })
+    }));
+  });
+
+  it("loads daemon-backed run state with auth headers", async () => {
+    const sessionStorage = memoryStorage({ "cognopticon:daemonToken": "runs-secret" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/"),
+      sessionStorage,
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      runs: [{
+        id: "verify:launchable-tool",
+        projectId: "launchable-tool",
+        title: "Launchable Tool verification",
+        status: "completed",
+        summary: "npm run test exited 0 in /home/user/private/project",
+        command: "npm run test -- /home/user/private/project",
+        jobId: "job:1",
+        createdAt: "2026-05-24T12:00:00.000Z",
+        updatedAt: "2026-05-24T12:00:03.000Z"
+      }],
+      jobs: [{
+        id: "job:1",
+        runId: "verify:launchable-tool",
+        projectId: "launchable-tool",
+        title: "Launchable Tool verification at C:\\Users\\User\\secret",
+        command: "npm",
+        args: ["run", "test", "/home/user/private/project"],
+        status: "completed",
+        ok: true,
+        exitCode: 0,
+        createdAt: "2026-05-24T12:00:00.000Z",
+        updatedAt: "2026-05-24T12:00:03.000Z",
+        timeoutMs: 5000,
+        events: [
+          { id: "daemon:queued", type: "job_queued", createdAt: "2026-05-24T12:00:00.000Z", summary: "Queued npm run test in /home/user/private/project" },
+          { id: "daemon:output", type: "job_output", createdAt: "2026-05-24T12:00:02.000Z", summary: "stdout output observed C:\\Users\\User\\secret.txt", stream: "stdout", truncated: false },
+          { id: "daemon:finished", type: "job_finished", createdAt: "2026-05-24T12:00:03.000Z", summary: "completed exit 0", status: "completed", exitCode: 0 }
+        ]
+      }]
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const state = await getDaemonRunState("http://127.0.0.1:8787");
+
+    expect(state).toMatchObject({
+      ok: true,
+      runs: [{ id: "verify:launchable-tool", status: "completed" }],
+      jobs: [{
+        id: "job:1",
+        status: "completed",
+        events: [{ type: "job_queued" }, { type: "job_output" }, { type: "job_finished" }]
+      }]
+    });
+    expect(JSON.stringify(state)).not.toContain("/home/user");
+    expect(JSON.stringify(state)).not.toContain("C:\\Users");
+    expect(state.runs[0].summary).toBe("npm run test exited 0 in [redacted path]");
+    expect(state.runs[0].command).toBe("npm run test -- [redacted path]");
+    expect(state.jobs[0].title).toBe("Launchable Tool verification at [redacted path]");
+    expect(state.jobs[0].args).toEqual(["run", "test", "[redacted path]"]);
+    expect(state.jobs[0].events?.[0].summary).toBe("Queued npm run test in [redacted path]");
+    expect(state.jobs[0].events?.[1].summary).toBe("stdout output observed [redacted path]");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/api/runs/state", expect.objectContaining({
+      headers: { "X-Cognopticon-Token": "runs-secret" }
+    }));
+  });
+
+  it("sanitizes daemon job rejection messages before app state", async () => {
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/"),
+      sessionStorage: memoryStorage(),
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      const error = url.endsWith("/api/jobs")
+        ? "Path is outside configured Cognopticon roots: /home/user/private/project"
+        : "Lookup failed for C:\\Users\\User\\secret.txt";
+      return new Response(JSON.stringify({ error }), { status: 403, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queued = await createDaemonJob({ cwd: "/home/user/private/project", command: "npm", args: ["test"] }, "http://127.0.0.1:8787");
+    const loaded = await getDaemonJob("job:secret", "http://127.0.0.1:8787");
+
+    expect(queued).toMatchObject({ ok: false, message: "Path is outside configured Cognopticon roots." });
+    expect(loaded).toMatchObject({ ok: false, message: "Lookup failed for [redacted path]" });
+    expect(JSON.stringify({ queued, loaded })).not.toContain("/home/user");
+    expect(JSON.stringify({ queued, loaded })).not.toContain("C:\\Users");
+  });
+
+  it("sanitizes direct daemon job responses before app state", async () => {
+    const sessionStorage = memoryStorage({ "cognopticon:daemonToken": "job-secret" });
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/"),
+      sessionStorage,
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    const jobBody = {
+      id: "job:1",
+      runId: "verify:launchable-tool",
+      projectId: "launchable-tool",
+      title: "Launchable Tool verification",
+      cwd: "/home/user/private/project",
+      command: "npm",
+      args: ["run", "test"],
+      status: "completed",
+      ok: true,
+      exitCode: 0,
+      stdout: "ok /home/user/private/project/secret.txt",
+      stderr: "warn C:\\Users\\User\\secret.txt",
+      createdAt: "2026-05-24T12:00:00.000Z",
+      updatedAt: "2026-05-24T12:00:03.000Z",
+      timeoutMs: 5000,
+      eventId: "daemon:finished"
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/jobs")) {
+        return new Response(JSON.stringify({ ok: true, jobId: "job:1", job: jobBody }), { status: 202, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ ok: true, job: jobBody }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queued = await createDaemonJob({ cwd: "/home/user/private/project", command: "npm", args: ["run", "test"] }, "http://127.0.0.1:8787");
+    const loaded = await getDaemonJob("job:1", "http://127.0.0.1:8787");
+
+    expect(queued.job).toMatchObject({ id: "job:1", command: "npm", status: "completed" });
+    expect(loaded.job).toMatchObject({ id: "job:1", command: "npm", status: "completed" });
+    expect(JSON.stringify(queued)).not.toContain("/home/user");
+    expect(JSON.stringify(loaded)).not.toContain("/home/user");
+    expect(JSON.stringify(loaded)).not.toContain("C:\\Users");
+    expect(JSON.stringify(loaded)).not.toContain("stdout");
+    expect(JSON.stringify(loaded)).not.toContain("stderr");
+    expect(JSON.stringify(loaded)).not.toContain("cwd");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8787/api/jobs/job%3A1", expect.objectContaining({
+      headers: { "X-Cognopticon-Token": "job-secret" }
+    }));
+  });
+
+  it("rejects malformed daemon run state without leaking into app state", async () => {
+    vi.stubGlobal("window", {
+      location: new URL("http://127.0.0.1:5173/"),
+      sessionStorage: memoryStorage(),
+      localStorage: memoryStorage(),
+      history: { state: {}, replaceState: vi.fn() }
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      runs: [{
+        id: "bad-run",
+        projectId: "launchable-tool",
+        title: "Bad run",
+        status: "completed",
+        summary: "bad",
+        createdAt: "2026-05-24T12:00:00.000Z",
+        updatedAt: "2026-05-24T12:00:03.000Z"
+      }],
+      jobs: [{
+        id: "job:bad",
+        command: "npm",
+        args: ["run", "test"],
+        status: "completed",
+        ok: true,
+        createdAt: "2026-05-24T12:00:00.000Z",
+        updatedAt: "2026-05-24T12:00:03.000Z",
+        events: [{ id: "daemon:bad", type: "job_output" }]
+      }]
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    const state = await getDaemonRunState("http://127.0.0.1:8787");
+
+    expect(state).toMatchObject({
+      ok: false,
+      runs: [],
+      jobs: [],
+      message: "Daemon returned malformed run state."
+    });
   });
 
   it("streams daemon events with fetch headers and reconnects after EOF", async () => {

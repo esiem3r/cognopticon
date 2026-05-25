@@ -12,9 +12,11 @@ Thanks for helping make Cognopticon stronger. This project is local-first softwa
 
 ## Local Setup
 
+For a first checkout, read `docs/getting-started.md` to choose public demo mode or private local runtime mode before running commands.
+
 ```bash
 npm install
-npm run dev
+npm run dev:demo
 ```
 
 Open `http://127.0.0.1:5173/` for the sanitized demo.

@@ -4,6 +4,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { chromium } from "@playwright/test";
+import { releasePrivateContentPatterns } from "./release-privacy-rules.mjs";
 
 const root = process.cwd();
 const artifactDir = resolve(root, "test-results", "ux-audit");
@@ -33,15 +34,28 @@ const states = [
     await page.getByRole("complementary", { name: "Next action queue" }).waitFor({ state: "visible" });
   } },
   { id: "mission", setup: async (page) => {
-    await page.getByRole("button", { name: "Generate Mission", exact: true }).first().click();
+    await clickFirstActionable(page.getByRole("button", { name: "Generate Mission", exact: true }));
     await page.getByLabel("Generated mission brief").waitFor({ state: "visible" });
+  } },
+  { id: "runtime-health", setup: async (page) => {
+    await page.getByRole("button", { name: "Open runtime health" }).click();
+    await page.getByRole("dialog", { name: "Local runtime health" }).waitFor({ state: "visible" });
+  } },
+  { id: "run-history", setup: async (page) => {
+    await page.getByRole("button", { name: "Open run history" }).click();
+    await page.getByRole("dialog", { name: "Run history" }).waitFor({ state: "visible" });
   } }
 ];
+const browserPrivacyPatternSpecs = releasePrivateContentPatterns.map(({ label, pattern }) => ({
+  label,
+  source: pattern.source,
+  flags: pattern.flags
+}));
 
 rmSync(artifactDir, { recursive: true, force: true });
 mkdirSync(artifactDir, { recursive: true });
 
-const server = spawn(process.execPath, [resolve(root, "node_modules", "vite", "bin", "vite.js"), "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
+const server = spawn(process.execPath, [resolve(root, "node_modules", "vite", "bin", "vite.js"), "--mode", "pages", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
   cwd: root,
   env: { ...process.env, FORCE_COLOR: "0" },
   stdio: ["ignore", "pipe", "pipe"]
@@ -58,6 +72,8 @@ try {
     generatedAt: new Date().toISOString(),
     baseUrl,
     artifactDir,
+    mode: "pages",
+    publicStaticDemo: true,
     viewports: [],
     screenshots: [],
     failures: []
@@ -68,14 +84,25 @@ try {
       const context = await browser.newContext({ viewport, deviceScaleFactor: viewport.width <= 480 ? 2 : 1 });
       const page = await context.newPage();
       const label = `${viewport.id}-${state.id}`;
+      const unexpectedApiCalls = [];
       try {
+        await page.route("**/api/**", async (route) => {
+          unexpectedApiCalls.push(route.request().url());
+          await route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "UX audit blocks daemon/private API calls in public static mode." })
+          });
+        });
+        if (state.prepare) await state.prepare(page);
         await page.goto(`${baseUrl}/?uxAudit=${encodeURIComponent(label)}`, { waitUntil: "domcontentloaded" });
         await page.getByTestId("universe-canvas").waitFor({ state: "visible" });
         await page.waitForTimeout(650);
         await state.setup(page);
         await page.waitForTimeout(250);
 
-        const audit = await page.evaluate(runBrowserAudit);
+        const audit = await page.evaluate(runBrowserAudit, browserPrivacyPatternSpecs);
+        audit.unexpectedApiCalls = unexpectedApiCalls;
         const screenshotPath = join(artifactDir, `${label}.png`);
         const screenshot = await page.screenshot({ path: screenshotPath, fullPage: true });
         audit.viewport = viewport;
@@ -117,6 +144,7 @@ function failuresFor(audit) {
   const touchTargetViewport = audit.viewport.width <= 940;
   const prefix = touchTargetViewport ? "touch" : "desktop";
   if (audit.privateLeaks.length) failures.push({ type: "privacy", message: `visible text leaks private/token-looking content: ${audit.privateLeaks.join(", ")}` });
+  if (audit.unexpectedApiCalls.length) failures.push({ type: "daemon-isolation", message: `public UX audit made private API call(s): ${audit.unexpectedApiCalls.slice(0, 5).join(", ")}` });
   if (audit.scrollWidth > audit.innerWidth + 1) failures.push({ type: "overflow", message: `document has horizontal overflow ${audit.scrollWidth}px > ${audit.innerWidth}px` });
   if (audit.screenshot.bytes < 20_000) failures.push({ type: "screenshot", message: `screenshot artifact is suspiciously small (${audit.screenshot.bytes} bytes)` });
   if (audit.canvas.width < Math.min(320, audit.innerWidth - 24) || audit.canvas.height < 280) {
@@ -124,6 +152,9 @@ function failuresFor(audit) {
   }
   if (audit.canvas.dataUrlLength < 12_000 || audit.canvas.uniqueColors < 6 || audit.canvas.luminanceSpread < 18) {
     failures.push({ type: "canvas", message: `canvas looks blank or flat (data ${audit.canvas.dataUrlLength}, colors ${audit.canvas.uniqueColors}, luminance ${audit.canvas.luminanceSpread})` });
+  }
+  if (audit.colorDiversity.families.length < 3) {
+    failures.push({ type: "palette", message: `visible UI uses too few accent hue families: ${audit.colorDiversity.families.join(", ") || "none"}` });
   }
   if (audit.clippedControls.length) failures.push({ type: "clipped-control", message: `clipped controls: ${audit.clippedControls.slice(0, 5).map((item) => item.label).join("; ")}` });
   if (audit.textOverflow.length) failures.push({ type: "text-overflow", message: `text overflow: ${audit.textOverflow.slice(0, 5).map((item) => item.label).join("; ")}` });
@@ -160,12 +191,37 @@ async function waitForServer(url) {
   throw new Error(`Timed out waiting for ${url}:\n${serverLog.join("")}`);
 }
 
+async function clickFirstActionable(locator) {
+  const count = await locator.count();
+  const failures = [];
+  const visibleCandidates = [];
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (!(await candidate.isVisible())) continue;
+    visibleCandidates.push(candidate);
+    try {
+      await candidate.click({ trial: true, timeout: 1200 });
+      await candidate.click();
+      return;
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message.split("\n")[0] : String(error));
+    }
+  }
+  if (visibleCandidates.length) {
+    await visibleCandidates[0].evaluate((element) => element.click());
+    return;
+  }
+  throw new Error(`No visible actionable candidate found for locator; tried ${count}: ${failures.join("; ")}`);
+}
+
 function markdownReport(report) {
   const lines = [
     "# Cognopticon UX Audit",
     "",
     `Generated: ${report.generatedAt}`,
     `Base URL: ${report.baseUrl}`,
+    `Mode: ${report.mode}`,
+    `Public static demo: ${report.publicStaticDemo ? "yes" : "no"}`,
     `States: ${report.viewports.length}`,
     `Failures: ${report.failures.length}`,
     "",
@@ -173,7 +229,7 @@ function markdownReport(report) {
     ""
   ];
   for (const audit of report.viewports) {
-    lines.push(`- ${audit.viewport.id} / ${audit.state}: screenshot ${audit.screenshot.bytes} bytes, canvas ${Math.round(audit.canvas.width)}x${Math.round(audit.canvas.height)}, colors ${audit.canvas.uniqueColors}, failures ${audit.failures.length}`);
+    lines.push(`- ${audit.viewport.id} / ${audit.state}: screenshot ${audit.screenshot.bytes} bytes, canvas ${Math.round(audit.canvas.width)}x${Math.round(audit.canvas.height)}, colors ${audit.canvas.uniqueColors}, palette ${audit.colorDiversity.families.join("/")}, failures ${audit.failures.length}`);
   }
   if (report.failures.length) {
     lines.push("", "## Failures", "");
@@ -183,7 +239,7 @@ function markdownReport(report) {
   return `${lines.join("\n")}\n`;
 }
 
-function runBrowserAudit() {
+function runBrowserAudit(privacyPatternSpecs) {
   const auditCanvas = (canvas) => {
     const sample = document.createElement("canvas");
     sample.width = 72;
@@ -219,6 +275,40 @@ function runBrowserAudit() {
     const style = window.getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     return style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
+  };
+  const colorDiversity = () => {
+    const families = new Map();
+    const elements = Array.from(document.querySelectorAll("body, body *"))
+      .filter(visibleElement)
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
+      });
+
+    for (const element of elements) {
+      const style = window.getComputedStyle(element);
+      for (const value of [
+        style.color,
+        style.backgroundColor,
+        style.borderTopColor,
+        style.borderRightColor,
+        style.borderBottomColor,
+        style.borderLeftColor,
+        style.outlineColor
+      ]) {
+        const color = parseColor(value);
+        if (!color || color.alpha < 0.12) continue;
+        const hsl = rgbToHsl(color.red, color.green, color.blue);
+        if (hsl.saturation < 0.18 || hsl.lightness < 0.08 || hsl.lightness > 0.96) continue;
+        const family = hueFamily(hsl.hue);
+        families.set(family, (families.get(family) ?? 0) + 1);
+      }
+    }
+
+    return {
+      families: [...families.entries()].sort((left, right) => right[1] - left[1]).map(([family]) => family),
+      counts: Object.fromEntries([...families.entries()].sort((left, right) => left[0].localeCompare(right[0])))
+    };
   };
   const labelOf = (element) => {
     const text = element.getAttribute("aria-label") || element.getAttribute("title") || element.textContent || element.tagName;
@@ -306,20 +396,15 @@ function runBrowserAudit() {
   const tinyTargets = viewportActionables
     .map(({ rect }) => rect)
     .filter((rect) => rect.width < 43.5 || rect.height < 43.5);
-  const privateLeakPatterns = [
-    /\/home\/(?!example\b|user\b)[^/"'\s]+/i,
-    /\/mnt\/c\/Users\/[^/"'\s]+/i,
-    /C:\\Users\\[^\\/"'\s]+/i,
-    /daemonToken/i,
-    /ghp_[A-Za-z0-9_]{20,}/,
-    /sk-[A-Za-z0-9_-]{20,}/
-  ];
   const inputValues = Array.from(document.querySelectorAll("input, textarea, select"))
     .map((element) => "value" in element ? element.value : "")
     .filter(Boolean)
     .join("\n");
   const visibleText = `${document.body.innerText || ""}\n${inputValues}`;
-  const privateLeaks = privateLeakPatterns.filter((pattern) => pattern.test(visibleText)).map((pattern) => String(pattern));
+  const privateLeaks = privacyPatternSpecs
+    .map(({ label, source, flags }) => ({ label, pattern: new RegExp(source, flags) }))
+    .filter(({ pattern }) => pattern.test(visibleText))
+    .map(({ label }) => label);
   const textOverlaps = textOverlapPairs(textBlocks);
   const canvas = document.querySelector("[data-testid='universe-canvas']");
   const canvasAudit = canvas ? auditCanvas(canvas) : {
@@ -343,8 +428,50 @@ function runBrowserAudit() {
     textOverlaps,
     tinyTargets,
     controlOverlaps,
-    privateLeaks
+    privateLeaks,
+    colorDiversity: colorDiversity()
   };
+
+  function parseColor(value) {
+    const match = String(value).match(/^rgba?\(([^)]+)\)$/);
+    if (!match) return undefined;
+    const [red, green, blue, alpha = "1"] = match[1].replace(/\s*\/\s*/g, " ").split(/[\s,]+/).filter(Boolean);
+    const channelValues = [Number(red), Number(green), Number(blue), Number(alpha)];
+    if (!channelValues.every(Number.isFinite)) return undefined;
+    return {
+      red: channelValues[0],
+      green: channelValues[1],
+      blue: channelValues[2],
+      alpha: channelValues[3]
+    };
+  }
+
+  function rgbToHsl(red, green, blue) {
+    const r = red / 255;
+    const g = green / 255;
+    const b = blue / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const lightness = (max + min) / 2;
+    const delta = max - min;
+    if (delta === 0) return { hue: 0, saturation: 0, lightness };
+    const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+    let hue;
+    if (max === r) hue = 60 * (((g - b) / delta) % 6);
+    else if (max === g) hue = 60 * ((b - r) / delta + 2);
+    else hue = 60 * ((r - g) / delta + 4);
+    if (hue < 0) hue += 360;
+    return { hue, saturation, lightness };
+  }
+
+  function hueFamily(hue) {
+    if (hue < 25 || hue >= 330) return "rose";
+    if (hue < 75) return "amber";
+    if (hue < 165) return "green";
+    if (hue < 225) return "cyan";
+    if (hue < 285) return "violet";
+    return "magenta";
+  }
 
   function textOverlapPairs(items) {
     const overlaps = [];

@@ -191,8 +191,11 @@ async function assertHealth(baseUrl) {
   const body = await response.json();
   assert(response.status === 200, `daemon health returned ${response.status}`);
   assert(body.profile?.id === profileId, "daemon health should expose the local-init active profile");
-  assert(body.profile?.stateDir === stateDir, "daemon health should point at the temp on-disk profile state");
-  assert(Array.isArray(body.allowedRoots) && body.allowedRoots.length === 1 && body.allowedRoots[0] === projectRoot, "daemon health should only expose the active profile allowed root");
+  assert(!("stateDir" in (body.profile ?? {})), "daemon health should not expose the temp on-disk profile state");
+  assert(!Array.isArray(body.allowedRoots), "daemon health should not expose active profile allowed root paths");
+  assert(body.allowedRootCount === 1, "daemon health should expose only the allowed root count");
+  assert(!JSON.stringify(body).includes(stateDir), "daemon health should not include profile state paths");
+  assert(!JSON.stringify(body).includes(projectRoot), "daemon health should not include allowed root paths");
   assert(!JSON.stringify(body).includes(repoRoot), "daemon health should not expose the repository root as an allowed runtime root");
 }
 
@@ -204,10 +207,20 @@ async function assertProfiles(baseUrl) {
   const profiles = Array.isArray(body.profiles) ? body.profiles : [];
   const profileIds = profiles.map((profile) => profile.id).sort();
   assert(JSON.stringify(profileIds) === JSON.stringify([profileId, secondaryProfileId].sort()), "daemon profiles should list both local-init profiles");
-  for (const profile of profiles) {
-    assert(typeof profile.stateDir === "string" && profile.stateDir.startsWith(tempRoot), `profile ${profile.id} state should remain under temp root`);
-    assert(!profile.stateDir.startsWith(repoRoot), `profile ${profile.id} state should not point at the repository .cognopticon state`);
-  }
+  const activeProfile = profiles.find((profile) => profile.id === profileId);
+  const secondaryProfile = profiles.find((profile) => profile.id === secondaryProfileId);
+  const serialized = JSON.stringify(body);
+  assert(activeProfile?.active === true, "active profile should be flagged without exposing its state dir");
+  assert(secondaryProfile?.active === false, "secondary profile should be listed as inactive");
+  assert(activeProfile?.allowedRootCount === 1, "active profile should expose only its allowed root count");
+  assert(secondaryProfile?.allowedRootCount === 1, "secondary profile should expose only its allowed root count");
+  assert(!serialized.includes("stateDir"), "daemon profiles should not include stateDir fields");
+  assert(!serialized.includes("allowedRoots"), "daemon profiles should not include allowed root path fields");
+  assert(!serialized.includes(tempRoot), "daemon profiles should not leak temp root paths");
+  assert(!serialized.includes(stateDir), "daemon profiles should not leak profile state paths");
+  assert(!serialized.includes(projectRoot), "daemon profiles should not leak active profile roots");
+  assert(!serialized.includes(secondaryRoot), "daemon profiles should not leak secondary profile roots");
+  assert(!serialized.includes(repoRoot), "daemon profiles should not expose repository paths");
 }
 
 async function assertWorkspace(baseUrl) {
@@ -236,9 +249,11 @@ async function assertAllowlistedJob(baseUrl) {
   const job = await pollJob(baseUrl, createBody.jobId);
   assert(job.status === "completed", `daemon job should complete, got ${job.status}`);
   assert(job.ok === true, "daemon job should be ok");
-  assert(job.stdout.includes("disk-daemon-proof-ok"), "daemon job should capture stdout");
-  assert(job.stdout.includes(projectRoot), "direct daemon job lookup should keep raw local stdout for the requesting operator");
-  assert(job.stderr.includes(projectRoot), "direct daemon job lookup should keep raw local stderr for the requesting operator");
+  assert(!("cwd" in job), "direct daemon job lookup should not expose cwd");
+  assert(!("stdout" in job), "direct daemon job lookup should not expose raw stdout");
+  assert(!("stderr" in job), "direct daemon job lookup should not expose raw stderr");
+  assert(!JSON.stringify(job).includes(projectRoot), "direct daemon job lookup should not leak project root paths");
+  assert(!JSON.stringify(job).includes(stateDir), "direct daemon job lookup should not leak profile state paths");
   return job;
 }
 

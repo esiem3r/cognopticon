@@ -1,0 +1,52 @@
+[
+  {
+    "label": "private Linux home path",
+    "source": "\\/home\\/(?!example\\b|user\\b)[^/\"'\\s]+",
+    "flags": "i"
+  },
+  {
+    "label": "private Windows mount path",
+    "source": "\\/mnt\\/c\\/Users\\/(?!example\\b|user\\b)[^/\"'\\s]+",
+    "flags": "i"
+  },
+  {
+    "label": "private Windows user path",
+    "source": "C:\\\\Users\\\\(?!example\\b|user\\b)[^\\\\/\"'\\s]+",
+    "flags": "i"
+  },
+  {
+    "label": "private macOS user path",
+    "source": "\\/Users\\/(?!example\\b|user\\b)[^/\"'\\s]+",
+    "flags": "i"
+  },
+  {
+    "label": "OpenAI-style API token",
+    "source": "sk-[A-Za-z0-9_-]{20,}",
+    "flags": ""
+  },
+  {
+    "label": "GitHub-style access token",
+    "source": "gh[pousr]_[A-Za-z0-9_]{20,}",
+    "flags": ""
+  },
+  {
+    "label": "private key block",
+    "source": "-----BEGIN (?:RSA |OPENSSH |EC |PGP )?PRIVATE KEY-----",
+    "flags": ""
+  },
+  {
+    "label": "HTTP basic authorization header",
+    "source": "Authorization:\\s*Basic\\s+[A-Za-z0-9+/=]{16,}",
+    "flags": "i"
+  },
+  {
+    "label": "HTTP bearer authorization header",
+    "source": "Authorization:\\s*Bearer\\s+[A-Za-z0-9._~+/-]{20,}",
+    "flags": "i"
+  },
+  {
+    "label": "database URL with credentials",
+    "source": "\\b(?:postgres(?:ql)?|mysql|mongodb(?:\\+srv)?):\\/\\/[^:\\s/@]+:[^@\\s/]+@",
+    "flags": "i"
+  }
+]

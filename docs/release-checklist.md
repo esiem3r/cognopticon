@@ -5,6 +5,7 @@ Use this checklist before publishing a branch, pull request, tag, package artifa
 ## Public Surfaces
 
 - `README.md` explains public demo mode, local runtime mode, safety boundaries, commands, and final verification.
+- `docs/getting-started.md` gives a fresh-user decision path for public demo, local runtime, and Codex process loops.
 - README and `package.json` declare the supported Node.js/npm install floor.
 - `package.json` remains `private` to prevent accidental npm-registry publication.
 - `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `SUPPORT.md` are present.
@@ -65,6 +66,8 @@ The hosted repository should be public, have Issues enabled, have unmaintained P
 ## Human Review
 
 - Review package contents with `npm pack --dry-run --json` or `npm run validate:package`.
+- `npm run validate:package` must scan the exact dry-run package entries for forbidden files, private-looking paths, and high-signal token/private-key content.
 - Review staged release payload with `npm run validate:payload`.
 - Review lifecycle packet structure with `npm run validate:lifecycle` when changing orchestration, research, handoff, review, verifier, or UX-auditor behavior. For a real lifecycle run, use `npm run validate:lifecycle -- --packet "<runDir>" --complete-research` before plan lock when research is required.
+- For the personal local version, run `npm run validate:private` after `npm run local:init`, then review the redacted private proof report under `.cognopticon/profiles/<profile>/proofs/`. Do not move that report into tracked release assets unless it has been manually reviewed for public safety.
 - Ask an independent reviewer or verifier to check privacy, daemon authority, docs, mobile UX, and final command evidence.
