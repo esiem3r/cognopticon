@@ -4,6 +4,7 @@ import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileS
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { assertAllowlistedCommand, normalizeArgs, resolveInsideAllowedRoots } from "./security.js";
 import { loadRuntimeConfig, normalizeProfile } from "../../scripts/runtime-config.mjs";
 
@@ -63,7 +64,7 @@ export function createDaemon(options = {}) {
   const maxRuntimeMs = Number(config.agents?.maxRuntimeMs ?? 900000);
   const spawnProcess = options.spawn ?? spawn;
   const now = options.now ?? (() => new Date().toISOString());
-  const randomId = options.randomId ?? (() => Math.random().toString(36).slice(2));
+  const randomId = options.randomId ?? (() => randomUUID());
   hydrateDaemonState();
 
   const server = createServer(async (request, response) => {
