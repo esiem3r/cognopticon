@@ -721,6 +721,39 @@ describe("cognopticon daemon endpoints", () => {
     expect(stateText).not.toContain("\"stderr\":");
   });
 
+  it("uses cryptographic UUID entropy for default daemon-generated ids", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cognopticon-secure-id-"));
+    writeDemoFixtures(root);
+    const daemon = createDaemon({
+      root,
+      configPath: false,
+      config: {
+        host: "127.0.0.1",
+        port: 0,
+        allowedRoots: [root],
+        allowedOrigins: ["http://local.test"],
+        daemon: { maxRequestBytes: 4096 },
+        agents: { maxThreads: 1, maxRuntimeMs: 5000 }
+      },
+      spawn: createSpawnStub(),
+      now: () => "2026-05-22T12:00:00.000Z"
+    });
+    await new Promise((resolveListen) => daemon.server.listen(0, "127.0.0.1", resolveListen));
+    daemons.push(daemon);
+    const address = daemon.server.address();
+    const url = `http://127.0.0.1:${address.port}`;
+
+    const session = await postJson(url, "/api/orchestrator/session", {
+      focusProjectId: "project-1",
+      visualizerUrl: "http://127.0.0.1:5173/"
+    });
+    const body = await session.json();
+
+    expect(session.status).toBe(200);
+    expect(body.sessionId).toMatch(/^orchestrator:\d+:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(body.eventId).toMatch(/^daemon:\d+:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
   it("records orchestrator task events only for known sessions", async () => {
     const { url } = await startTestDaemon();
 
