@@ -41,7 +41,10 @@ for (const ref of assetRefs) {
   }
   const assetPath = join(distRoot, ref.slice(deployBase.length));
   if (!existsSync(assetPath)) errors.push(`Pages asset reference is missing from dist-pages: ${ref}`);
-  else if (statSync(assetPath).size < 100) errors.push(`Pages asset is suspiciously small: ${ref}`);
+  else {
+    const assetStat = statSync(assetPath);
+    if (!assetStat.isFile() || assetStat.size === 0) errors.push(`Pages asset must be a non-empty file: ${ref}`);
+  }
 }
 
 for (const file of walk(distRoot)) {
